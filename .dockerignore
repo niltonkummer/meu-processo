@@ -2,6 +2,8 @@
 .github
 .terraform
 .DS_Store
+**/* 2
+**/* 2.*
 .env
 .env.*
 !.env.example

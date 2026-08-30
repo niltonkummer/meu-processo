@@ -21,6 +21,16 @@ import {
 
 const APP_NAME = "meu-processo-web";
 
+export const attemptVerificationDelivery = async (
+  send: () => Promise<VerificationDelivery>,
+): Promise<VerificationDelivery | undefined> => {
+  try {
+    return await send();
+  } catch {
+    return undefined;
+  }
+};
+
 interface FirebaseAuthSetupTarget {
   languageCode: string | null;
 }
@@ -276,7 +286,9 @@ class FirebaseBrowserAuthClient implements AuthClient {
         email,
         password,
       );
-      const delivery = await this.sendVerification(credential.user);
+      const delivery = await attemptVerificationDelivery(() =>
+        this.sendVerification(credential.user),
+      );
       return toAuthUser(
         credential.user,
         () => this.sendVerification(credential.user),

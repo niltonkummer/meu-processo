@@ -102,7 +102,7 @@ describe("AccountAccess", () => {
     expect(screen.getByRole("button", { name: "Entrar" })).toBeVisible();
   });
 
-  it("creates an account, requests verification and does not call the private API", async () => {
+  it("creates an unverified account and validates it with the backend", async () => {
     const user = userEvent.setup();
     const unverified: AuthUser = {
       ...verifiedUser,
@@ -110,11 +110,20 @@ describe("AccountAccess", () => {
       verificationDelivery: { kind: "email" },
     };
     const client = createClient(unverified);
-    const fetcher = vi.fn<typeof fetch>();
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          user: { userId: "firebase_user", memberships: [] },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+    const onSessionChange = vi.fn();
     render(
       <AccountAccess
         loadClient={vi.fn().mockResolvedValue(client)}
         fetcher={fetcher}
+        onSessionChange={onSessionChange}
       />,
     );
 
@@ -128,44 +137,20 @@ describe("AccountAccess", () => {
       "nova@example.test",
       "senha-com-12-caracteres",
     );
-    expect(await screen.findByText(/enviamos uma confirmação/i)).toBeVisible();
-    expect(fetcher).not.toHaveBeenCalled();
-  });
-
-  it("shows the safe local verification link instead of claiming an email was sent", async () => {
-    const user = userEvent.setup();
-    const client = createClient({
-      ...verifiedUser,
-      emailVerified: false,
-      verificationDelivery: {
-        kind: "emulator",
-        actionUrl:
-          "http://127.0.0.1:9099/emulator/action?mode=verifyEmail&oobCode=local",
-      },
+    expect(fetcher).toHaveBeenCalledWith("/api/v1/session", {
+      headers: { authorization: "Bearer firebase-id-token" },
     });
-    render(
-      <AccountAccess
-        loadClient={vi.fn().mockResolvedValue(client)}
-        fetcher={vi.fn<typeof fetch>()}
-      />,
-    );
-
-    await user.click(screen.getByRole("button", { name: "Entrar" }));
-    await user.click(screen.getByRole("button", { name: "Criar conta" }));
-    await user.type(screen.getByLabelText("E-mail"), "local@example.test");
-    await user.type(screen.getByLabelText("Senha"), "senha-com-12-caracteres");
-    await user.click(screen.getByRole("button", { name: "Criar minha conta" }));
-
-    expect(await screen.findByText(/emulador local não envia e-mail/i)).toBeVisible();
+    expect(await screen.findByText("pessoa@example.test")).toBeVisible();
     expect(
-      screen.getByRole("link", { name: "Confirmar e-mail de teste" }),
-    ).toHaveAttribute(
-      "href",
-      "http://127.0.0.1:9099/emulator/action?mode=verifyEmail&oobCode=local",
-    );
+      screen.getByText("Validação: e-mail ainda não confirmado"),
+    ).toBeVisible();
+    expect(onSessionChange).toHaveBeenCalledWith({
+      email: "pessoa@example.test",
+      getIdToken: expect.any(Function),
+    });
   });
 
-  it("blocks an unverified login and allows resending verification", async () => {
+  it("allows an unverified login without offering verification resend", async () => {
     const user = userEvent.setup();
     const sendVerification = vi.fn().mockResolvedValue({ kind: "email" });
     const client = createClient({
@@ -173,7 +158,14 @@ describe("AccountAccess", () => {
       emailVerified: false,
       sendVerification,
     });
-    const fetcher = vi.fn<typeof fetch>();
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          user: { userId: "firebase_user", memberships: [] },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
     render(
       <AccountAccess
         loadClient={vi.fn().mockResolvedValue(client)}
@@ -185,13 +177,16 @@ describe("AccountAccess", () => {
     await user.type(screen.getByLabelText("E-mail"), "pessoa@example.test");
     await user.type(screen.getByLabelText("Senha"), "uma-senha-segura");
     await user.click(screen.getByRole("button", { name: "Acessar minha conta" }));
-    await user.click(
-      await screen.findByRole("button", { name: "Reenviar confirmação" }),
-    );
 
-    expect(sendVerification).toHaveBeenCalledOnce();
-    expect(screen.getByRole("status")).toHaveTextContent("Enviamos uma confirmação");
-    expect(fetcher).not.toHaveBeenCalled();
+    expect(await screen.findByText("pessoa@example.test")).toBeVisible();
+    expect(
+      screen.getByText("Validação: e-mail ainda não confirmado"),
+    ).toBeVisible();
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(sendVerification).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("button", { name: "Reenviar confirmação" }),
+    ).not.toBeInTheDocument();
   });
 
   it("shows a safe error when configuration or backend validation fails", async () => {

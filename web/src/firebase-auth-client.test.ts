@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { SafeAuthenticationError } from "./auth-client";
 import {
+  attemptVerificationDelivery,
   configureFirebaseBrowserAuth,
   fetchEmulatorVerificationDelivery,
   mapFirebaseProviderError,
@@ -11,6 +12,21 @@ import {
 } from "./firebase-auth-client";
 
 describe("Firebase browser configuration", () => {
+  it("keeps account creation usable when verification delivery is unavailable", async () => {
+    const send = vi.fn().mockRejectedValue(new Error("email not configured"));
+
+    await expect(attemptVerificationDelivery(send)).resolves.toBeUndefined();
+    expect(send).toHaveBeenCalledOnce();
+  });
+
+  it("preserves verification delivery metadata when the provider accepts it", async () => {
+    const delivery = { kind: "email" } as const;
+
+    await expect(
+      attemptVerificationDelivery(vi.fn().mockResolvedValue(delivery)),
+    ).resolves.toEqual(delivery);
+  });
+
   it.each([
     [
       "auth/network-request-failed",
