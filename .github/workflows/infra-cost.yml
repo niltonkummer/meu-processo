@@ -24,6 +24,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       terraform-changed: ${{ steps.assessment.outputs.terraform_changed }}
+      terraform-baseline: ${{ steps.assessment.outputs.terraform_baseline }}
     steps:
       - name: Checkout pull request history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -73,20 +74,26 @@ jobs:
           if grep -Eq '^infra/terraform/' "$changed_files"; then
             terraform_changed=true
           fi
+          terraform_baseline=false
+          if git cat-file -e "$BASE_SHA:infra/terraform/main.tf" 2>/dev/null; then
+            terraform_baseline=true
+          fi
           echo "terraform_changed=$terraform_changed" >> "$GITHUB_OUTPUT"
+          echo "terraform_baseline=$terraform_baseline" >> "$GITHUB_OUTPUT"
 
           {
             echo "## Infrastructure cost gate"
             echo
             echo "- Approved assessment: yes"
             echo "- Terraform changed: $terraform_changed"
+            echo "- Terraform baseline exists: $terraform_baseline"
             echo "- Approved assessment: $cost_file"
           } >> "$GITHUB_STEP_SUMMARY"
 
   terraform-cost-diff:
     name: Terraform cost diff
     needs: cost-assessment
-    if: needs.cost-assessment.outputs.terraform-changed == 'true'
+    if: needs.cost-assessment.outputs.terraform-changed == 'true' && needs.cost-assessment.outputs.terraform-baseline == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -135,3 +142,24 @@ jobs:
           base-path: base
           head-path: head
           version: "0.2.10"
+
+  terraform-cost-bootstrap:
+    name: Terraform bootstrap cost evidence
+    needs: cost-assessment
+    if: needs.cost-assessment.outputs.terraform-changed == 'true' && needs.cost-assessment.outputs.terraform-baseline == 'false'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout proposed baseline
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+
+      - name: Require recorded local Infracost evidence
+        run: |
+          set -euo pipefail
+          cost_file=$(tr -d '\r\n' < .github/deploy-cost-assessment)
+          grep -Fq '## 9. Evidência pós-implementação local' "$cost_file"
+          grep -Fq '20 recursos Terraform' "$cost_file"
+          grep -Fq 'US$ 0,02' "$cost_file"
+          echo "Initial Terraform baseline accepted with reviewed local scan evidence. Remote cost diffs are mandatory after this merge."

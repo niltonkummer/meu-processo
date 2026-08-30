@@ -10,13 +10,15 @@ Impedir que código, configuração ou infraestrutura avance sem uma avaliação
 2. Preencher custo atual, esperado e limite, incluindo os custos dependentes de uso.
 3. Obter a decisão `aprovado para implementação` antes de iniciar a mudança.
 4. Alterar a avaliação no mesmo pull request da implementação para preservar a trilha de auditoria.
-5. Revisar o comentário do Infracost quando `infra/terraform/` tiver sido alterado.
+5. Revisar o comentário do Infracost quando `infra/terraform/` tiver sido alterado; na primeira baseline, revisar a evidência local registrada.
 6. Para autorizar deploy de validação, criar ou atualizar `.github/deploy-cost-assessment` com o caminho da avaliação aprovada no mesmo pull request.
 7. Após deploy, preencher os custos reais em 7 e 30 dias.
 
 Antes do passo 3, a única alteração permitida é criar ou corrigir a própria avaliação de custo. Nenhum runtime, recurso, dado ou dependência pode ser modificado nessa etapa.
 
-O check `Infra cost / Cost assessment` roda em todo pull request. O check `Infra cost / Terraform cost diff` só é criado quando existe mudança Terraform.
+O check `Infra cost / Cost assessment` roda em todo pull request. Mudanças
+Terraform recebem `Terraform cost diff` quando já existe baseline ou
+`Terraform bootstrap cost evidence` somente na primeira inclusão.
 
 ## Configuração única no GitHub
 
@@ -38,6 +40,12 @@ Forks não recebem secrets. A avaliação documental continua funcionando, mas u
 
 O Infracost calcula somente o que consegue representar a partir do IaC e de suas premissas. Ele não substitui a estimativa manual de:
 
+Na primeira inclusão da baseline Terraform, não existe um projeto-base na
+`main` para calcular um diff. Somente nesse caso, o workflow aceita a avaliação
+aprovada que contenha a evidência de um `infracost scan` local autenticado. Essa
+exceção encerra automaticamente após o merge: qualquer alteração Terraform
+seguinte exige o diff remoto e uma credencial de CI válida e rotacionada.
+
 - carga real do Cloud Run;
 - operações e volume do Firestore;
 - armazenamento, recuperação e egress do Cloud Storage;
@@ -52,9 +60,9 @@ O processamento do diff usa o serviço externo do Infracost. Antes de enviar inf
 - avaliação ausente ou fora de `docs/costs/`;
 - ponteiro `.github/deploy-cost-assessment` ausente ou inválido em uma tentativa de deploy;
 - marcador de versão ausente;
-- status diferente de `aprovado para implementação`;
+- status diferente de `aprovado para implementação` ou `aprovado para implementação e rollout de validação`;
 - custo atual, esperado, limite ou aprovação ausente;
-- token Infracost ausente em uma mudança Terraform interna;
+- token Infracost ausente em uma mudança Terraform interna após a baseline inicial;
 - tentativa de executar estimativa com secret em pull request externo;
 - falha do scanner ou ausência do comentário de diff aplicável.
 
