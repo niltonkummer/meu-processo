@@ -109,6 +109,18 @@ produção, novo recurso faturável ou aumento do limite de US$ 10.
 
 | Data | Custo estimado | Custo real | Variação | Explicação | Ação |
 |---|---:|---:|---:|---|---|
+| 30/08/2026 (D0) | até US$ 0,38/mês | ainda não consolidado | — | somente troca de imagem e smoke test controlado | manter e medir em D+1 |
 | D+1 | até US$ 0,38/mês | — | — | confirmar autenticação e volume | manter ou rollback |
 | D+7 | até US$ 0,38/mês | — | — | medir requests e downloads | revisar |
 | D+30 | até US$ 0,38/mês | — | — | comparar com billing | encerrar exceção ou reaprovar |
+
+## 9. Evidência do rollout
+
+O plano Terraform aplicado em 30/08/2026 continha apenas a troca da imagem da
+aplicação: 0 criações, 1 atualização, 0 remoções e 0 substituições. A revisão
+`meu-processo-mvp-00029-8n9` aceitou sessão e consulta com token válido e
+`email_verified=false`, manteve a API anônima em HTTP 401 e o worker privado em
+HTTP 403. O plano posterior retornou `No changes`.
+
+Não houve novo recurso, SKU ou aumento de capacidade. Portanto, a estimativa
+permanece em até US$ 0,38/mês e o limite aprovado permanece em US$ 10.

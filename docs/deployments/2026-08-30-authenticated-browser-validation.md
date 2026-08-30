@@ -67,7 +67,9 @@ O frontend está disponível em:
 
 O acesso anônimo alcança somente a interface e os endpoints públicos de saúde.
 Todas as rotas `/api/` continuam protegidas pelo Identity Platform e exigem um
-token de usuário com e-mail verificado.
+token Firebase válido. Durante a exceção temporária da Spec 0006, o claim
+`email_verified=false` não impede a consulta, pois o envio de e-mail ainda não
+está configurado.
 
 ## Evidência da abertura pública
 
@@ -92,6 +94,41 @@ Após a aplicação do plano:
 A abertura não criou binding `allUsers`; ela desativou a checagem IAM somente
 na aplicação, de forma compatível com Domain Restricted Sharing. O worker
 permanece privado e não teve sua checagem IAM desativada.
+
+## Evidência da consulta antes da configuração de e-mail
+
+A [PR #10](https://github.com/niltonkummer/meu-processo/pull/10) foi mesclada
+em `0748db8919b02e4fa35906f7924b0f0e6463efdc` após aprovação dos checks de
+testes, cobertura, dependências, Terraform, Checkov e segurança de containers.
+A mudança segue a [Spec 0006](../specs/0006-authenticated-access-without-email-verification.md)
+e a [avaliação de custo 0007](../costs/0007-authenticated-access-without-email-verification.md).
+
+- imagem da aplicação:
+  `app:0748db8919b02e4fa35906f7924b0f0e6463efdc`;
+- digest:
+  `sha256:f1c6ade6cf4435c28371e80823689bb7f10dddc66e2232da978c9eddec33778f`;
+- imagem publicada com procedência e SBOM;
+- scan da imagem exata do rollout: zero vulnerabilidades HIGH/CRITICAL e zero
+  segredos;
+- plano aplicado: 0 criações, 1 atualização, 0 remoções e 0 substituições;
+- única alteração de infraestrutura: troca da imagem da aplicação;
+- nova revisão da aplicação: `meu-processo-mvp-00029-8n9`;
+- revisão do worker preservada: `meu-processo-browser-renderer-00001-vgs`;
+- conta autenticada com `email_verified=false`: sessão HTTP 200;
+- consulta por nome com a mesma conta: HTTP 200;
+- API sem token: HTTP 401;
+- worker sem identidade: HTTP 403;
+- tentativa de cadastro sem origem autorizada: HTTP 403, confirmando a
+  restrição de origem da chave Firebase;
+- conta sintética removida após o smoke test: remoção HTTP 200 e token
+  revogado/rejeitado pela sessão com HTTP 401;
+- nenhum membro público no IAM da aplicação ou do worker; somente
+  `meu-processo-runtime` pode invocar o worker;
+- plano Terraform pós-aplicação: `No changes`.
+
+O custo mensal esperado permanece em até US$ 0,38, sem novo SKU ou aumento de
+capacidade, e o limite operacional continua em US$ 10. A exceção expira em
+29/09/2026 ou quando o envio de e-mail for configurado, o que ocorrer primeiro.
 
 ## Exceção de bootstrap e próximo passo
 
