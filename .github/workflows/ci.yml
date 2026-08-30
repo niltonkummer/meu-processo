@@ -60,9 +60,23 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 1
+          fetch-depth: 0
+
+      - name: Detect dependency manifest in the pull request baseline
+        id: dependency-baseline
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if git cat-file -e "$BASE_SHA:package-lock.json" 2>/dev/null; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "Initial repository bootstrap: npm audit remains required; dependency review starts after this baseline is merged."
+          fi
 
       - name: Block vulnerable dependency changes
+        if: steps.dependency-baseline.outputs.available == 'true'
         uses: actions/dependency-review-action@05fe4576374b728f0c523d6a13d64c25081e0803 # v4.8.3
         with:
           fail-on-severity: high

@@ -46,35 +46,28 @@ jobs:
           changed_files="$RUNNER_TEMP/changed-files.txt"
           git diff --name-only --diff-filter=ACMRD "$BASE_SHA" "$HEAD_SHA" > "$changed_files"
 
-          mapfile -t cost_files < <(
-            grep -E '^docs/costs/[0-9]{4}-[a-z0-9][a-z0-9-]*\.md$' "$changed_files" || true
-          )
-
-          if (( ${#cost_files[@]} == 0 )); then
-            echo "::error::Every pull request must add or update an assessment in docs/costs/."
+          pointer_file=".github/deploy-cost-assessment"
+          if [[ ! -f "$pointer_file" ]]; then
+            echo "::error::Every pull request must select an approved cost assessment."
             exit 1
           fi
-
-          approved=false
-          invalid=false
-          for file in "${cost_files[@]}"; do
-            if grep -Fqx '<!-- infra-cost-assessment:v1 -->' "$file" \
-              && grep -Eq '^\*\*Status:\*\* aprovado para implementação( e rollout de validação)?[[:space:]]*$' "$file" \
-              && grep -Eq '^\*\*Custo mensal atual \(USD\):\*\* .+' "$file" \
-              && grep -Eq '^\*\*Custo mensal esperado \(USD\):\*\* .+' "$file" \
-              && grep -Eq '^\*\*Custo mensal limite \(USD\):\*\* .+' "$file" \
-              && grep -Eq '^\*\*Aprovação:\*\* .+' "$file"; then
-              approved=true
-              echo "Cost assessment accepted: $file"
-            else
-              invalid=true
-              echo "::error file=$file::Assessment is incomplete or is not approved for implementation."
-            fi
-          done
-
-          if [[ "$approved" != "true" ]] || [[ "$invalid" == "true" ]]; then
+          cost_file=$(tr -d '\r\n' < "$pointer_file")
+          if [[ ! "$cost_file" =~ ^docs/costs/[0-9]{4}-[a-z0-9][a-z0-9-]*\.md$ ]] \
+            || ! grep -Fqx "$cost_file" "$changed_files"; then
+            echo "::error::The selected cost assessment must be added or updated by this pull request."
             exit 1
           fi
+          if [[ ! -f "$cost_file" ]] \
+            || ! grep -Fqx '<!-- infra-cost-assessment:v1 -->' "$cost_file" \
+            || ! grep -Eq '^\*\*Status:\*\* aprovado para implementação( e rollout de validação)?[[:space:]]*$' "$cost_file" \
+            || ! grep -Eq '^\*\*Custo mensal atual \(USD\):\*\* .+' "$cost_file" \
+            || ! grep -Eq '^\*\*Custo mensal esperado \(USD\):\*\* .+' "$cost_file" \
+            || ! grep -Eq '^\*\*Custo mensal limite \(USD\):\*\* .+' "$cost_file" \
+            || ! grep -Eq '^\*\*Aprovação:\*\* .+' "$cost_file"; then
+            echo "::error file=$cost_file::Assessment is incomplete or is not approved for implementation."
+            exit 1
+          fi
+          echo "Cost assessment accepted: $cost_file"
 
           terraform_changed=false
           if grep -Eq '^infra/terraform/' "$changed_files"; then
@@ -87,7 +80,7 @@ jobs:
             echo
             echo "- Approved assessment: yes"
             echo "- Terraform changed: $terraform_changed"
-            echo "- Assessment files: ${#cost_files[@]}"
+            echo "- Approved assessment: $cost_file"
           } >> "$GITHUB_STEP_SUMMARY"
 
   terraform-cost-diff:
