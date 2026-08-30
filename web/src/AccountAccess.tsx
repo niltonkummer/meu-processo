@@ -4,8 +4,6 @@ import {
   SafeAuthenticationError,
   type AuthClient,
   type AuthenticatedWebSession,
-  type AuthUser,
-  type VerificationDelivery,
 } from "./auth-client";
 
 type AccessMode = "sign-in" | "sign-up";
@@ -39,31 +37,8 @@ export function AccountAccess({
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [status, setStatus] = useState("");
-  const [pendingVerification, setPendingVerification] = useState<AuthUser>();
-  const [localVerificationLink, setLocalVerificationLink] = useState("");
   const [signedInEmail, setSignedInEmail] = useState("");
-
-  const showVerificationDelivery = (delivery?: VerificationDelivery) => {
-    if (delivery?.kind === "email") {
-      setLocalVerificationLink("");
-      setStatus(
-        "Enviamos uma confirmação para seu e-mail. Abra a mensagem antes de entrar.",
-      );
-      return;
-    }
-    if (delivery?.kind === "emulator") {
-      setLocalVerificationLink(delivery.actionUrl ?? "");
-      setStatus(
-        delivery.actionUrl
-          ? "O emulador local não envia e-mail. Use o link de teste abaixo para confirmar."
-          : "O emulador local não envia e-mail. Consulte o link de confirmação nos logs locais.",
-      );
-      return;
-    }
-    setLocalVerificationLink("");
-    setStatus("Confirme seu e-mail para liberar o painel privado.");
-  };
+  const [signedInEmailVerified, setSignedInEmailVerified] = useState(true);
 
   const openPanel = async () => {
     setOpen(true);
@@ -84,20 +59,11 @@ export function AccountAccess({
 
     setBusy(true);
     setError("");
-    setStatus("");
-    setLocalVerificationLink("");
     try {
       const user =
         mode === "sign-up"
           ? await client.signUp(email, password)
           : await client.signIn(email, password);
-
-      if (mode === "sign-up" || !user.emailVerified) {
-        setPendingVerification(user);
-        setPassword("");
-        showVerificationDelivery(user.verificationDelivery);
-        return;
-      }
 
       const token = await user.getIdToken();
       const response = await fetcher("/api/v1/session", {
@@ -111,6 +77,7 @@ export function AccountAccess({
       }
 
       setSignedInEmail(user.email);
+      setSignedInEmailVerified(user.emailVerified);
       onSessionChange({
         email: user.email,
         getIdToken: () => user.getIdToken(),
@@ -126,31 +93,13 @@ export function AccountAccess({
     }
   };
 
-  const resendVerification = async () => {
-    if (!pendingVerification) return;
-    setBusy(true);
-    setError("");
-    try {
-      const delivery = await pendingVerification.sendVerification();
-      showVerificationDelivery(delivery);
-    } catch (caught) {
-      setError(
-        safeMessage(caught, "Não foi possível reenviar a confirmação."),
-      );
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const logout = async () => {
     if (!client) return;
     onSessionChange(undefined);
     setSignedInEmail("");
-    setPendingVerification(undefined);
-    setLocalVerificationLink("");
+    setSignedInEmailVerified(true);
     setEmail("");
     setPassword("");
-    setStatus("");
     setError("");
     try {
       await client.signOut();
@@ -162,7 +111,12 @@ export function AccountAccess({
   if (signedInEmail) {
     return (
       <div className="account-summary">
-        <span>{signedInEmail}</span>
+        <div className="account-identity">
+          <span>{signedInEmail}</span>
+          {!signedInEmailVerified ? (
+            <small>Validação: e-mail ainda não confirmado</small>
+          ) : null}
+        </div>
         <button type="button" onClick={() => void logout()}>Sair</button>
       </div>
     );
@@ -199,19 +153,8 @@ export function AccountAccess({
           </div>
 
           {error ? <p className="account-error" role="alert">{error}</p> : null}
-          {status ? <p className="account-status" role="status">{status}</p> : null}
-          {localVerificationLink ? (
-            <a
-              className="account-verification-link"
-              href={localVerificationLink}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Confirmar e-mail de teste
-            </a>
-          ) : null}
 
-          {client && !pendingVerification ? (
+          {client ? (
             <form onSubmit={(event) => void submit(event)}>
               <label htmlFor="account-email">E-mail</label>
               <input
@@ -241,24 +184,11 @@ export function AccountAccess({
                 onClick={() => {
                   setMode(mode === "sign-in" ? "sign-up" : "sign-in");
                   setError("");
-                  setStatus("");
-                  setLocalVerificationLink("");
                 }}
               >
                 {mode === "sign-in" ? "Criar conta" : "Já tenho conta"}
               </button>
             </form>
-          ) : null}
-
-          {pendingVerification ? (
-            <button
-              className="account-primary"
-              type="button"
-              disabled={busy}
-              onClick={() => void resendVerification()}
-            >
-              Reenviar confirmação
-            </button>
           ) : null}
 
           {busy && !client ? (

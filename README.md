@@ -16,13 +16,16 @@ misturar documentos que não tenham um número de processo válido.
   fatos, sem repetir a consulta;
 - fundação privada versionada com escopo pessoal/organização e negação por
   padrão.
-- cadastro e login Firebase por e-mail/senha, confirmação de e-mail e sessão
-  mantida somente em memória.
+- cadastro e login Firebase por e-mail/senha, com sessão mantida somente em
+  memória; durante a validação, o envio e a confirmação de e-mail ainda não são
+  obrigatórios.
 
 A busca da Spec 0001 continua sem estado. A fundação multiusuário da Spec 0002
 já possui contratos, modelo canônico e autorização. Firebase Authentication
-protege as rotas da API e exige confirmação de e-mail. Firestore, Storage e
-persistência de memberships continuam fora desta entrega.
+protege as rotas da API e continua exigindo token válido, UID e e-mail. A
+confirmação do e-mail está temporariamente dispensada pela Spec 0006 enquanto o
+envio não é configurado. Firestore, Storage e persistência de memberships
+continuam fora desta entrega.
 
 ## Executar localmente
 
@@ -122,8 +125,9 @@ O escopo padrão é pessoal. Um cliente autenticado pode solicitar o contexto de
 uma organização com `X-Organization-Id`; o servidor valida vínculo ativo antes
 de consultar o repositório. O runtime usa Firebase Admin quando
 `AUTH_MODE=firebase`; sem essa configuração, as rotas privadas continuam
-recusando todas as chamadas com HTTP 401. E-mail não confirmado, token revogado
-ou token inválido também resulta em 401.
+recusando todas as chamadas com HTTP 401. Durante a validação, e-mail não
+confirmado é aceito; token ausente, revogado ou inválido continua resultando em
+401.
 
 O gateway de documentos recebe somente IDs internos. A URL de origem permanece
 no servidor, passa por allowlist exata, HTTPS, validação de DNS/IP, redirects,
@@ -167,6 +171,7 @@ As decisões e critérios completos estão em
 [`docs/specs/0002-process-monitoring-functional-parity.md`](docs/specs/0002-process-monitoring-functional-parity.md),
 [`docs/specs/0003-authentication.md`](docs/specs/0003-authentication.md),
 [`docs/specs/0004-authenticated-brazilian-proxy.md`](docs/specs/0004-authenticated-brazilian-proxy.md),
+[`docs/specs/0006-authenticated-access-without-email-verification.md`](docs/specs/0006-authenticated-access-without-email-verification.md),
 [`docs/adr/0001-stateless-djen-validation.md`](docs/adr/0001-stateless-djen-validation.md),
 [`docs/adr/0002-multiuser-modes-and-document-delivery.md`](docs/adr/0002-multiuser-modes-and-document-delivery.md),
 [`docs/adr/0003-firebase-authentication-boundary.md`](docs/adr/0003-firebase-authentication-boundary.md),

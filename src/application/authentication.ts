@@ -40,8 +40,7 @@ export class VerifiedTokenAuthenticator implements TokenVerifier {
     const identity = await this.decoder.decode(token);
     if (
       identity.userId.trim().length === 0 ||
-      identity.email.trim().length === 0 ||
-      !identity.emailVerified
+      identity.email.trim().length === 0
     ) {
       throw new AuthenticationRejectedError();
     }

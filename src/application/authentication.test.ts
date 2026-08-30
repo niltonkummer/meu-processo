@@ -46,10 +46,29 @@ describe("VerifiedTokenAuthenticator", () => {
     expect(memberships.listActiveForUser).toHaveBeenCalledWith("firebase_user");
   });
 
+  it("builds a principal for an authenticated identity whose email is not yet verified", async () => {
+    const memberships = directory([activeMembership, inactiveMembership]);
+    const authenticator = new VerifiedTokenAuthenticator(
+      {
+        decode: vi.fn().mockResolvedValue({
+          userId: "firebase_user",
+          email: "pessoa@example.test",
+          emailVerified: false,
+        }),
+      },
+      memberships,
+    );
+
+    await expect(authenticator.verify("signed-token")).resolves.toEqual({
+      userId: "firebase_user",
+      memberships: [activeMembership],
+    });
+    expect(memberships.listActiveForUser).toHaveBeenCalledWith("firebase_user");
+  });
+
   it.each([
     { userId: "", email: "pessoa@example.test", emailVerified: true },
     { userId: "firebase_user", email: "", emailVerified: true },
-    { userId: "firebase_user", email: "pessoa@example.test", emailVerified: false },
   ])("rejects an identity that is not eligible for private access", async (identity) => {
     const memberships = directory();
     const authenticator = new VerifiedTokenAuthenticator(
