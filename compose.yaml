@@ -1,0 +1,118 @@
+name: meu-processo
+
+services:
+  app:
+    build:
+      context: .
+      target: production
+      args:
+        VITE_FIREBASE_BROWSER_KEY: demo-browser-key
+        VITE_FIREBASE_AUTH_DOMAIN: demo-meu-processo.firebaseapp.com
+        VITE_FIREBASE_PROJECT_ID: demo-meu-processo
+        VITE_FIREBASE_APP_ID: demo-web-app
+        VITE_FIREBASE_AUTH_EMULATOR_URL: http://127.0.0.1:9099
+    image: meu-processo:local
+    init: true
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      AUTH_MODE: firebase
+      BROWSER_RENDERER_AUTH_MODE: disabled
+      BROWSER_RENDERER_URL: http://browser-renderer:8080
+      FIREBASE_AUTH_EMULATOR_HOST: auth-emulator:9099
+      GOOGLE_CLOUD_PROJECT: demo-meu-processo
+      DJEN_SEARCH_PROXY_URL: ${DJEN_SEARCH_PROXY_URL:-}
+    depends_on:
+      auth-emulator:
+        condition: service_healthy
+      browser-renderer:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - /nodejs/bin/node
+        - -e
+        - "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  browser-renderer:
+    build:
+      context: .
+      target: renderer
+    image: meu-processo-browser-renderer:local
+    init: true
+    read_only: true
+    shm_size: 256mb
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      NODE_ENV: production
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+
+  auth-emulator:
+    build:
+      context: .
+      target: auth-emulator
+    image: meu-processo-auth-emulator:local
+    init: true
+    ports:
+      - "${AUTH_EMULATOR_PORT:-9099}:9099"
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+      - /home/firebase:size=128m,mode=1777,uid=10001,gid=10001
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:9099').then(()=>process.exit(0)).catch(()=>process.exit(1))"
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+  test:
+    profiles: ["test"]
+    build:
+      context: .
+      target: test
+    command: ["npm", "run", "coverage"]
+    working_dir: /app
+    environment:
+      COVERAGE_DIRECTORY: /tmp/coverage
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      - /app/node_modules/.vite-temp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true

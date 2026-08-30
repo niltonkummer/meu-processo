@@ -1,0 +1,257 @@
+# Deployment is manual and protected by a GitHub Environment. Configure required
+# reviewers on the validation/production environments before enabling this workflow.
+name: Deploy Cloud Run validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      public_access_enabled:
+        description: "Expose the frontend only after the private revision smoke test passes"
+        required: true
+        type: choice
+        options:
+          - "false"
+          - "true"
+        default: "false"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-validation
+  cancel-in-progress: false
+
+env:
+  GCP_PROJECT_ID: meu-processo-507018
+  GCP_REGION: southamerica-east1
+  ARTIFACT_REPOSITORY: meu-processo
+  CLOUD_RUN_SERVICE: meu-processo-mvp
+  BROWSER_RENDERER_SERVICE: meu-processo-browser-renderer
+  DEPLOY_ENVIRONMENT: validation
+  TF_IN_AUTOMATION: "true"
+
+jobs:
+  deploy:
+    name: Verify, build, plan and apply
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    environment:
+      name: validation
+    steps:
+      - name: Checkout selected commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+
+      - name: Verify the approved cost assessment
+        run: |
+          set -euo pipefail
+          pointer_file=".github/deploy-cost-assessment"
+          if [[ ! -f "$pointer_file" ]]; then
+            echo "::error::A reviewed pull request must create .github/deploy-cost-assessment before deployment."
+            exit 1
+          fi
+          COST_ASSESSMENT=$(tr -d '\r\n' < "$pointer_file")
+          if [[ ! "$COST_ASSESSMENT" =~ ^docs/costs/[0-9]{4}-[a-z0-9][a-z0-9-]*\.md$ ]]; then
+            echo "::error::.github/deploy-cost-assessment must reference a versioned file under docs/costs/."
+            exit 1
+          fi
+          if [[ ! -f "$COST_ASSESSMENT" ]] \
+            || ! grep -Fqx '<!-- infra-cost-assessment:v1 -->' "$COST_ASSESSMENT" \
+            || ! grep -Eq '^\*\*Status:\*\* aprovado para implementação e rollout de validação[[:space:]]*$' "$COST_ASSESSMENT"; then
+            echo "::error::The selected cost assessment does not explicitly authorize a validation rollout."
+            exit 1
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24.20.0"
+          cache: npm
+
+      - name: Re-run release gates
+        run: |
+          npm ci --ignore-scripts
+          npm audit --audit-level=high
+          npm run lint
+          npm run typecheck
+          npm run coverage
+          npm run build
+
+      - name: Authenticate to Google Cloud through OIDC
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Set up Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: "1.14.9"
+          terraform_wrapper: false
+
+      - name: Configure Artifact Registry authentication
+        run: gcloud auth configure-docker "${GCP_REGION}-docker.pkg.dev" --quiet
+
+      - name: Verify public Firebase build configuration
+        env:
+          VITE_FIREBASE_BROWSER_KEY: ${{ vars.FIREBASE_BROWSER_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_APP_ID: ${{ vars.FIREBASE_APP_ID }}
+        run: |
+          set -euo pipefail
+          for variable_name in VITE_FIREBASE_BROWSER_KEY VITE_FIREBASE_AUTH_DOMAIN VITE_FIREBASE_PROJECT_ID VITE_FIREBASE_APP_ID; do
+            if [[ -z "${!variable_name}" ]]; then
+              echo "::error::Missing required GitHub Actions Variable: ${variable_name#VITE_}"
+              exit 1
+            fi
+          done
+
+      - name: Build image for local vulnerability scan
+        env:
+          IMAGE_URI: ${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPOSITORY }}/app:${{ github.sha }}
+          VITE_FIREBASE_BROWSER_KEY: ${{ vars.FIREBASE_BROWSER_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_APP_ID: ${{ vars.FIREBASE_APP_ID }}
+        run: >-
+          docker build
+          --build-arg VITE_FIREBASE_BROWSER_KEY
+          --build-arg VITE_FIREBASE_AUTH_DOMAIN
+          --build-arg VITE_FIREBASE_PROJECT_ID
+          --build-arg VITE_FIREBASE_APP_ID
+          --target production
+          --tag "$IMAGE_URI"
+          .
+
+      - name: Build browser renderer for local vulnerability scan
+        env:
+          BROWSER_RENDERER_IMAGE_URI: ${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPOSITORY }}/renderer:${{ github.sha }}
+        run: >-
+          docker build
+          --target renderer
+          --tag "$BROWSER_RENDERER_IMAGE_URI"
+          .
+
+      - name: Scan release image
+        env:
+          IMAGE_URI: ${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPOSITORY }}/app:${{ github.sha }}
+        run: >-
+          docker run --rm
+          -v /var/run/docker.sock:/var/run/docker.sock
+          aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
+          image --exit-code 1 --ignore-unfixed --severity HIGH,CRITICAL "$IMAGE_URI"
+
+      - name: Scan browser renderer image
+        env:
+          BROWSER_RENDERER_IMAGE_URI: ${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPOSITORY }}/renderer:${{ github.sha }}
+        run: >-
+          docker run --rm
+          -v /var/run/docker.sock:/var/run/docker.sock
+          aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
+          image --exit-code 1 --ignore-unfixed --severity HIGH,CRITICAL "$BROWSER_RENDERER_IMAGE_URI"
+
+      - name: Publish immutable image with provenance and SBOM
+        env:
+          IMAGE_URI: ${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPOSITORY }}/app:${{ github.sha }}
+          VITE_FIREBASE_BROWSER_KEY: ${{ vars.FIREBASE_BROWSER_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_APP_ID: ${{ vars.FIREBASE_APP_ID }}
+        run: >-
+          docker buildx build
+          --build-arg VITE_FIREBASE_BROWSER_KEY
+          --build-arg VITE_FIREBASE_AUTH_DOMAIN
+          --build-arg VITE_FIREBASE_PROJECT_ID
+          --build-arg VITE_FIREBASE_APP_ID
+          --target production
+          --platform linux/amd64
+          --provenance=true
+          --sbom=true
+          --tag "$IMAGE_URI"
+          --push
+          .
+
+      - name: Publish immutable browser renderer with provenance and SBOM
+        env:
+          BROWSER_RENDERER_IMAGE_URI: ${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPOSITORY }}/renderer:${{ github.sha }}
+        run: >-
+          docker buildx build
+          --target renderer
+          --platform linux/amd64
+          --provenance=true
+          --sbom=true
+          --tag "$BROWSER_RENDERER_IMAGE_URI"
+          --push
+          .
+
+      - name: Initialize remote Terraform state
+        working-directory: infra/terraform
+        env:
+          TF_STATE_BUCKET: ${{ vars.GCP_TF_STATE_BUCKET }}
+        run: terraform init -backend-config="bucket=$TF_STATE_BUCKET" -backend-config="prefix=meu-processo/$DEPLOY_ENVIRONMENT"
+
+      - name: Create reviewed Terraform plan
+        working-directory: infra/terraform
+        env:
+          IMAGE_URI: ${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPOSITORY }}/app:${{ github.sha }}
+          BROWSER_RENDERER_IMAGE_URI: ${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPOSITORY }}/renderer:${{ github.sha }}
+          PUBLIC_ACCESS_ENABLED: ${{ inputs.public_access_enabled }}
+        run: >-
+          terraform plan -out=tfplan
+          -var="project_id=$GCP_PROJECT_ID"
+          -var="region=$GCP_REGION"
+          -var="environment=$DEPLOY_ENVIRONMENT"
+          -var="service_name=$CLOUD_RUN_SERVICE"
+          -var="image_uri=$IMAGE_URI"
+          -var="browser_renderer_image_uri=$BROWSER_RENDERER_IMAGE_URI"
+          -var="public_access_enabled=$PUBLIC_ACCESS_ENABLED"
+
+      - name: Apply the reviewed plan
+        working-directory: infra/terraform
+        run: terraform apply -auto-approve tfplan
+
+      - name: Verify Cloud Run revision and intended reachability
+        env:
+          PUBLIC_ACCESS_ENABLED: ${{ inputs.public_access_enabled }}
+        run: |
+          set -euo pipefail
+          gcloud run services describe "$CLOUD_RUN_SERVICE" \
+            --project "$GCP_PROJECT_ID" \
+            --region "$GCP_REGION" \
+            --format="value(status.latestReadyRevision)"
+
+          gcloud run services describe "$BROWSER_RENDERER_SERVICE" \
+            --project "$GCP_PROJECT_ID" \
+            --region "$GCP_REGION" \
+            --format="value(status.latestReadyRevision)"
+
+          renderer_iam_members=$(gcloud run services get-iam-policy "$BROWSER_RENDERER_SERVICE" \
+            --project "$GCP_PROJECT_ID" \
+            --region "$GCP_REGION" \
+            --format=json \
+            | jq -r '.bindings[]? | select(.role == "roles/run.invoker") | .members[]?')
+
+          if grep -Eq '^(allUsers|allAuthenticatedUsers)$' <<< "$renderer_iam_members"; then
+            echo "::error::The isolated browser renderer must never be public."
+            exit 1
+          fi
+          grep -Fqx "serviceAccount:meu-processo-runtime@${GCP_PROJECT_ID}.iam.gserviceaccount.com" <<< "$renderer_iam_members"
+
+          iam_members=$(gcloud run services get-iam-policy "$CLOUD_RUN_SERVICE" \
+            --project "$GCP_PROJECT_ID" \
+            --region "$GCP_REGION" \
+            --format=json \
+            | jq -r '.bindings[]? | select(.role == "roles/run.invoker") | .members[]?')
+
+          if [[ "$PUBLIC_ACCESS_ENABLED" == "true" ]]; then
+            grep -Fqx "allUsers" <<< "$iam_members"
+          elif grep -Fqx "allUsers" <<< "$iam_members"; then
+            echo "::error::Cloud Run became public during the private rollout phase."
+            exit 1
+          fi

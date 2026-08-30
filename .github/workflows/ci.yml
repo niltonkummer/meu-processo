@@ -1,0 +1,170 @@
+# CI is intentionally deployment-free. It is safe for pull requests from forks and
+# grants the token read-only repository access.
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Tests, coverage and build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24.20.0"
+          cache: npm
+
+      - name: Install locked dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+
+      - name: Audit dependencies
+        run: npm audit --audit-level=high
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test with enforced coverage
+        run: npm run coverage
+
+      - name: Build production artifacts
+        run: npm run build
+
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Detect dependency manifest in the pull request baseline
+        id: dependency-baseline
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if git cat-file -e "$BASE_SHA:package-lock.json" 2>/dev/null; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "Initial repository bootstrap: npm audit remains required; dependency review starts after this baseline is merged."
+          fi
+
+      - name: Block vulnerable dependency changes
+        if: steps.dependency-baseline.outputs.available == 'true'
+        uses: actions/dependency-review-action@05fe4576374b728f0c523d6a13d64c25081e0803 # v4.8.3
+        with:
+          fail-on-severity: high
+
+  terraform:
+    name: Terraform and policy checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+
+      - name: Verify Terraform formatting
+        run: >-
+          docker run --rm
+          -v "$GITHUB_WORKSPACE:/workspace"
+          -w /workspace/infra/terraform
+          hashicorp/terraform:1.14.9@sha256:1d10ec4073f4ddbdf34a28540a3b9250852ab500cb1c53f68c8bd17d82f474d8
+          fmt -check -recursive
+
+      - name: Initialize Terraform without remote state
+        run: >-
+          docker run --rm
+          -v "$GITHUB_WORKSPACE:/workspace"
+          -w /workspace/infra/terraform
+          hashicorp/terraform:1.14.9@sha256:1d10ec4073f4ddbdf34a28540a3b9250852ab500cb1c53f68c8bd17d82f474d8
+          init -backend=false
+
+      - name: Validate Terraform
+        run: >-
+          docker run --rm
+          -v "$GITHUB_WORKSPACE:/workspace"
+          -w /workspace/infra/terraform
+          hashicorp/terraform:1.14.9@sha256:1d10ec4073f4ddbdf34a28540a3b9250852ab500cb1c53f68c8bd17d82f474d8
+          validate
+
+      - name: Run Terraform native tests
+        run: >-
+          docker run --rm
+          -v "$GITHUB_WORKSPACE:/workspace"
+          -w /workspace/infra/terraform
+          hashicorp/terraform:1.14.9@sha256:1d10ec4073f4ddbdf34a28540a3b9250852ab500cb1c53f68c8bd17d82f474d8
+          test
+
+      - name: Install pinned Checkov
+        run: python3 -m pip install --disable-pip-version-check checkov==3.3.15
+
+      - name: Scan Terraform policy
+        run: checkov -d infra/terraform --framework terraform --compact --quiet
+
+  container:
+    name: Container security
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+
+      - name: Lint Dockerfile
+        run: >-
+          docker run --rm -i
+          hadolint/hadolint:v2.15.1-alpine@sha256:a1d49ae1a4e83c1dbad26b8c1ad7588c8bd1e04f4866b34ad3cac50335198552
+          hadolint -
+          < Dockerfile
+
+      - name: Build test target
+        run: docker build --target test --tag meu-processo:test .
+
+      - name: Build production image
+        run: docker build --target production --tag meu-processo:ci .
+
+      - name: Build isolated browser renderer image
+        run: docker build --target renderer --tag meu-processo-browser-renderer:ci .
+
+      - name: Scan production image
+        run: >-
+          docker run --rm
+          -v /var/run/docker.sock:/var/run/docker.sock
+          aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
+          image --exit-code 1 --ignore-unfixed --severity HIGH,CRITICAL meu-processo:ci
+
+      - name: Scan isolated browser renderer image
+        run: >-
+          docker run --rm
+          -v /var/run/docker.sock:/var/run/docker.sock
+          aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
+          image --exit-code 1 --ignore-unfixed --severity HIGH,CRITICAL meu-processo-browser-renderer:ci

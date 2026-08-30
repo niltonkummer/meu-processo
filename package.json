@@ -1,0 +1,61 @@
+{
+  "name": "meu-processo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Validação segura de busca e agrupamento de publicações do DJEN.",
+  "engines": {
+    "node": ">=24 <27"
+  },
+  "scripts": {
+    "build": "npm run build:api && npm run build:web",
+    "build:api": "tsc -p tsconfig.api.json",
+    "build:web": "vite build",
+    "coverage": "vitest run --coverage",
+    "dev": "concurrently -k -n api,web -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "tsx watch src/main.ts",
+    "dev:renderer": "tsx watch src/renderer-main.ts",
+    "dev:web": "vite",
+    "lint": "eslint . --max-warnings=0",
+    "security:audit": "npm audit --audit-level=high",
+    "start": "node dist/api/main.js",
+    "start:renderer": "node dist/api/renderer-main.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.api.json --noEmit"
+  },
+  "dependencies": {
+    "entities": "8.0.0",
+    "firebase": "12.8.0",
+    "firebase-admin": "14.3.0",
+    "google-auth-library": "11.0.2",
+    "playwright-core": "1.62.0",
+    "ws": "8.21.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@testing-library/jest-dom": "7.0.1",
+    "@testing-library/react": "16.3.3",
+    "@testing-library/user-event": "14.6.6",
+    "@types/node": "26.4.0",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.5",
+    "@types/ws": "8.18.1",
+    "@vitejs/plugin-react": "6.1.1",
+    "@vitest/coverage-v8": "4.1.11",
+    "concurrently": "10.0.5",
+    "eslint": "10.9.1",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "eslint-plugin-react-refresh": "0.5.5",
+    "firebase-tools": "15.28.2",
+    "globals": "17.11.0",
+    "jsdom": "30.0.1",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "tsx": "4.23.12",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.68.0",
+    "vite": "8.2.2",
+    "vitest": "4.1.11"
+  }
+}
