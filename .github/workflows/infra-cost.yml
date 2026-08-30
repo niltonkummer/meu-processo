@@ -1,0 +1,144 @@
+# Required repository secret for trusted Terraform pull requests:
+#   INFRACOST_API_KEY
+#
+# Cost assessments remain mandatory and fork-safe for every pull request. The
+# Infracost step never receives Google Cloud credentials and never applies IaC.
+name: Infra cost
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  cost-assessment:
+    name: Cost assessment
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      terraform-changed: ${{ steps.assessment.outputs.terraform_changed }}
+    steps:
+      - name: Checkout pull request history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Require an approved cost assessment
+        id: assessment
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ ! "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Invalid pull request commit identifiers."
+            exit 1
+          fi
+
+          changed_files="$RUNNER_TEMP/changed-files.txt"
+          git diff --name-only --diff-filter=ACMRD "$BASE_SHA" "$HEAD_SHA" > "$changed_files"
+
+          mapfile -t cost_files < <(
+            grep -E '^docs/costs/[0-9]{4}-[a-z0-9][a-z0-9-]*\.md$' "$changed_files" || true
+          )
+
+          if (( ${#cost_files[@]} == 0 )); then
+            echo "::error::Every pull request must add or update an assessment in docs/costs/."
+            exit 1
+          fi
+
+          approved=false
+          invalid=false
+          for file in "${cost_files[@]}"; do
+            if grep -Fqx '<!-- infra-cost-assessment:v1 -->' "$file" \
+              && grep -Eq '^\*\*Status:\*\* aprovado para implementação( e rollout de validação)?[[:space:]]*$' "$file" \
+              && grep -Eq '^\*\*Custo mensal atual \(USD\):\*\* .+' "$file" \
+              && grep -Eq '^\*\*Custo mensal esperado \(USD\):\*\* .+' "$file" \
+              && grep -Eq '^\*\*Custo mensal limite \(USD\):\*\* .+' "$file" \
+              && grep -Eq '^\*\*Aprovação:\*\* .+' "$file"; then
+              approved=true
+              echo "Cost assessment accepted: $file"
+            else
+              invalid=true
+              echo "::error file=$file::Assessment is incomplete or is not approved for implementation."
+            fi
+          done
+
+          if [[ "$approved" != "true" ]] || [[ "$invalid" == "true" ]]; then
+            exit 1
+          fi
+
+          terraform_changed=false
+          if grep -Eq '^infra/terraform/' "$changed_files"; then
+            terraform_changed=true
+          fi
+          echo "terraform_changed=$terraform_changed" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## Infrastructure cost gate"
+            echo
+            echo "- Approved assessment: yes"
+            echo "- Terraform changed: $terraform_changed"
+            echo "- Assessment files: ${#cost_files[@]}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  terraform-cost-diff:
+    name: Terraform cost diff
+    needs: cost-assessment
+    if: needs.cost-assessment.outputs.terraform-changed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Require a trusted pull request
+        env:
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          TARGET_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [[ "$HEAD_REPOSITORY" != "$TARGET_REPOSITORY" ]]; then
+            echo "::error::Terraform cost estimation must be rerun from a trusted branch because fork pull requests do not receive secrets."
+            exit 1
+          fi
+
+      - name: Require the Infracost token
+        env:
+          INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$INFRACOST_API_KEY" ]]; then
+            echo "::error::Configure the INFRACOST_API_KEY repository secret before merging Terraform changes."
+            exit 1
+          fi
+
+      - name: Checkout proposed infrastructure
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: head
+          fetch-depth: 1
+
+      - name: Checkout baseline infrastructure
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+          fetch-depth: 1
+
+      - name: Calculate and publish the Terraform cost difference
+        uses: infracost/actions/diff@fb736a8f219195d6efdca58682069b16fe1bc280 # v4.2.0
+        with:
+          api-key: ${{ secrets.INFRACOST_API_KEY }}
+          base-path: base
+          head-path: head
+          version: "0.2.10"

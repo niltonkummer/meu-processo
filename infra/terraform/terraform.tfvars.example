@@ -1,0 +1,6 @@
+project_id   = "meu-processo-507018"
+region       = "southamerica-east1"
+environment  = "validation"
+service_name = "meu-processo-mvp"
+image_uri    = "southamerica-east1-docker.pkg.dev/meu-processo-507018/meu-processo/app:0123456789abcdef"
+browser_renderer_image_uri = "southamerica-east1-docker.pkg.dev/meu-processo-507018/meu-processo/renderer:0123456789abcdef"

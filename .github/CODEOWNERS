@@ -1,0 +1,10 @@
+# Security, infrastructure and repository policy require owner review.
+* @niltonkummer
+
+/.github/ @niltonkummer
+/AGENTS.md @niltonkummer
+/ENGINEERING_GUARDRAILS.md @niltonkummer
+/docs/costs/ @niltonkummer
+/docs/templates/infra-cost-assessment.md @niltonkummer
+/docs/operations/infra-cost-gate.md @niltonkummer
+/infra/ @niltonkummer

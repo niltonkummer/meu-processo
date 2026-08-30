@@ -1,0 +1,47 @@
+# Dependencies and build artifacts
+node_modules/
+dist/
+build/
+coverage/
+.nyc_output/
+.vite/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*.json
+service-account*.json
+
+# Test and local runtime
+tmp/
+.tmp/
+test-results/
+playwright-report/
+blob-report/
+.firebase/
+firebase-debug.log*
+
+# Terraform local state and plans
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
+*.swp
