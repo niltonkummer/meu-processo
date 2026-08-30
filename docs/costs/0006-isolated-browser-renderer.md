@@ -231,3 +231,9 @@ membros públicos. O plano Terraform pós-rollout retornou `No changes`.
 Ainda não existe custo real consolidado no D0. Permanecem válidos o custo
 incremental esperado de US$ 0,33/mês, o limite de US$ 10/mês e a parada em
 2.000 documentos. A primeira comparação de cobrança será registrada em D+1.
+
+O primeiro plano público tentou criar um binding `allUsers`, mas foi recusado
+sem alteração de estado pela política organizacional Domain Restricted Sharing.
+A correção usa o controle nativo `invoker_iam_disabled` apenas na aplicação,
+recomendado pelo Google para esse cenário. Não cria recurso faturável, não muda
+CPU, memória, escala ou tráfego estimado e mantém o custo esperado inalterado.

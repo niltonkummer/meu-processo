@@ -186,9 +186,12 @@ resource "google_cloud_run_v2_service" "app" {
   name     = var.service_name
   location = var.region
 
-  deletion_protection  = true
-  ingress              = "INGRESS_TRAFFIC_ALL"
-  invoker_iam_disabled = false
+  deletion_protection = true
+  ingress             = "INGRESS_TRAFFIC_ALL"
+  # Google recommends disabling the per-request Invoker IAM check for a public
+  # Cloud Run service, especially when Domain Restricted Sharing blocks an
+  # allUsers IAM binding. Application routes still enforce Firebase tokens.
+  invoker_iam_disabled = var.public_access_enabled
 
   template {
     service_account                  = google_service_account.runtime.email
@@ -361,15 +364,4 @@ resource "google_cloud_run_v2_service_iam_member" "browser_renderer_invoker" {
   name     = google_cloud_run_v2_service.browser_renderer.name
   role     = "roles/run.invoker"
   member   = "serviceAccount:${google_service_account.runtime.account_id}@${var.project_id}.iam.gserviceaccount.com"
-}
-
-# checkov:skip=CKV_GCP_102:The validation frontend is intentionally reachable; every /api route requires a verified Firebase token in the application.
-resource "google_cloud_run_v2_service_iam_member" "public_invoker" {
-  count = var.public_access_enabled ? 1 : 0
-
-  project  = var.project_id
-  location = var.region
-  name     = google_cloud_run_v2_service.app.name
-  role     = "roles/run.invoker"
-  member   = "allUsers"
 }

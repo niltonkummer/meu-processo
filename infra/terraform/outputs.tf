@@ -14,7 +14,7 @@ output "cloud_run_service_uri" {
 }
 
 output "public_access_enabled" {
-  description = "Whether Terraform grants allUsers the Cloud Run invoker role for frontend reachability."
+  description = "Whether Terraform disables the application service Invoker IAM check for public frontend reachability."
   value       = var.public_access_enabled
 }
 

@@ -1,11 +1,13 @@
 # Infraestrutura do MVP
 
 Esta configuração cria um Artifact Registry e um Cloud Run em
-`southamerica-east1`. O padrão `public_access_enabled = false` não concede
-`roles/run.invoker` a `allUsers`. Depois que a revisão autenticada passar pelos
-smokes privados, a validação pode usar `public_access_enabled = true` para
-carregar o frontend sem Google IAM; todas as rotas `/api/` continuam exigindo
-um ID token válido do Identity Platform no próprio aplicativo.
+`southamerica-east1`. O padrão `public_access_enabled = false` mantém a checagem
+IAM do Cloud Run. Depois que a revisão autenticada passar pelos smokes privados,
+a validação pode usar `public_access_enabled = true` para desativar essa checagem
+somente na aplicação, conforme a recomendação do Google para projetos com
+Domain Restricted Sharing; todas as rotas `/api/` continuam exigindo um ID
+token válido do Identity Platform. O renderizador nunca desativa sua checagem
+IAM.
 
 Também habilita o Identity Platform diretamente e permite somente autenticação
 por e-mail e senha. Login anônimo e telefone/SMS ficam explicitamente

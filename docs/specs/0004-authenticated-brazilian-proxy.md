@@ -104,7 +104,11 @@ da instância ou da afinidade expira o desafio sem compartilhar estado.
 
 ## 5. Segurança e privacidade
 
-- O binding `allUsers` concede alcance HTTP ao container, não acesso aos dados.
+- A borda pública desativa a checagem Invoker IAM somente na aplicação, como
+  recomendado pelo Google para projetos com Domain Restricted Sharing; isso
+  concede alcance HTTP ao container, não acesso às rotas privadas nem aos dados.
+- O renderizador isolado continua com a checagem Invoker IAM habilitada e sem
+  `allUsers` ou `allAuthenticatedUsers`.
 - Rotas sob `/api/` falham fechadas sem token Firebase válido e e-mail
   confirmado.
 - O UID e os limites vêm do token verificado pelo backend.
