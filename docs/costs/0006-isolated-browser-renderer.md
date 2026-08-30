@@ -237,3 +237,10 @@ sem alteração de estado pela política organizacional Domain Restricted Sharin
 A correção usa o controle nativo `invoker_iam_disabled` apenas na aplicação,
 recomendado pelo Google para esse cenário. Não cria recurso faturável, não muda
 CPU, memória, escala ou tráfego estimado e mantém o custo esperado inalterado.
+
+Após o merge da PR #8, o plano público revisado confirmou 0 criações, 1
+atualização in-place, 0 remoções e 0 substituições. O apply manteve as revisões
+e os limites de escala existentes; o plano posterior retornou `No changes`.
+Portanto, o custo incremental esperado permanece US$ 0,33/mês e o limite
+operacional permanece US$ 10/mês. O tráfego real continuará sendo acompanhado
+em D+1, D+7 e D+30.

@@ -1,4 +1,4 @@
-# Implantação autenticada com worker de navegador — 30/08/2026
+# Implantação autenticada e abertura pública — 30/08/2026
 
 ## Escopo
 
@@ -8,7 +8,9 @@ navegador no projeto `meu-processo-507018`. A mudança corresponde ao merge da
 custo `docs/costs/0006-isolated-browser-renderer.md`.
 
 Não foram adicionados banco de dados, cache, fila ou armazenamento de
-documentos. O serviço continua stateless e sem acesso público anônimo.
+documentos. O serviço continua stateless. A implantação começou privada e o
+frontend foi aberto somente depois dos testes autenticados e da aprovação da
+[PR #8](https://github.com/niltonkummer/meu-processo/pull/8).
 
 ## Artefatos imutáveis
 
@@ -59,16 +61,37 @@ recursos. O plano pós-implantação retornou `No changes`.
 
 ## Acesso para validação
 
-O serviço permanece privado. Com uma sessão `gcloud` autenticada:
+O frontend está disponível em:
 
-```sh
-gcloud run services proxy meu-processo-mvp \
-  --project meu-processo-507018 \
-  --region southamerica-east1 \
-  --port 18081
-```
+[https://meu-processo-mvp-rsirxb5ptq-rj.a.run.app](https://meu-processo-mvp-rsirxb5ptq-rj.a.run.app)
 
-Abra `http://localhost:18081` enquanto o proxy estiver ativo.
+O acesso anônimo alcança somente a interface e os endpoints públicos de saúde.
+Todas as rotas `/api/` continuam protegidas pelo Identity Platform e exigem um
+token de usuário com e-mail verificado.
+
+## Evidência da abertura pública
+
+A PR #8 foi mesclada em `38a74f9a6c9e598fb2809d9f977476c7af69d97d`
+após aprovação de testes, cobertura, revisão de dependências, Checkov, scans das
+duas imagens e comparação Infracost. O plano Terraform final continha somente
+uma atualização in-place: `invoker_iam_disabled` passou de `false` para `true`
+na aplicação. Foram 0 criações, 1 atualização, 0 remoções e 0 substituições.
+
+Após a aplicação do plano:
+
+- frontend sem identidade: `GET /` HTTP 200;
+- saúde da aplicação sem identidade: `GET /health` HTTP 200;
+- API sem token Firebase: `GET /api/v1/session` HTTP 401;
+- saúde do worker sem identidade: `GET /health` HTTP 403;
+- membros públicos IAM na aplicação e no worker: zero;
+- invocador do worker: somente `meu-processo-runtime`;
+- revisões preservadas: aplicação `meu-processo-mvp-00028-8km` e worker
+  `meu-processo-browser-renderer-00001-vgs`;
+- plano Terraform pós-aplicação: `No changes`.
+
+A abertura não criou binding `allUsers`; ela desativou a checagem IAM somente
+na aplicação, de forma compatível com Domain Restricted Sharing. O worker
+permanece privado e não teve sua checagem IAM desativada.
 
 ## Exceção de bootstrap e próximo passo
 
