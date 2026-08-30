@@ -189,6 +189,7 @@ Aprovação de custo não autoriza commit, push, merge, deploy ou abertura públ
 
 | Data | Custo estimado | Custo real | Variação | Explicação | Ação |
 |---|---:|---:|---:|---|---|
+| D0 | US$ 0,33/mês projetado | ainda não consolidado | — | rollout privado com escala a zero | medir em D+1 |
 | D+1 | US$ 0,33/mês projetado | — | — | validar cold start e duração | manter ou rollback |
 | D+7 | US$ 0,33/mês | — | — | medir custo por fluxo | manter, otimizar ou rollback |
 | D+30 | US$ 0,33/mês | — | — | comparar volume e egress | revisar estimativa |
@@ -205,10 +206,28 @@ scan estático.
 A política de exemplo da conta Infracost pediu tags `Service` e `Environment`.
 Ela não altera o custo nem representa uma falha do projeto: os recursos Google
 Cloud já usam os labels normalizados `application`, `environment` e
-`managed_by`. Nenhuma exceção ou recurso foi aplicado na nuvem.
+`managed_by`.
 
 A imagem local do renderizador foi verificada com Trivy 0.74.0 após remover do
 runtime o gerenciador npm, que não é necessário para executar o serviço. O
 resultado final foi zero vulnerabilidades corrigíveis High ou Critical. O
 scan também encontrou zero segredos High ou Critical. O Dockerfile passou
 Hadolint e 12 verificações Checkov sem falhas.
+
+## 10. Evidência do rollout privado
+
+Em 30 de agosto de 2026, o plano Terraform revisado criou o serviço Cloud Run
+privado `meu-processo-browser-renderer`, sua identidade sem privilégios e o
+vínculo `roles/run.invoker` exclusivo para `meu-processo-runtime`. A aplicação
+foi atualizada para o commit
+`0bba575a1bdd6f1a7e98f9e7d4ea5c9e3e95ed97`. Foram 3 criações, 1 atualização,
+0 remoções e 0 substituições.
+
+O worker foi mantido com zero instâncias mínimas, uma instância máxima,
+concorrência 1, uma CPU e 1 GiB. Aplicação e worker retornaram HTTP 403 sem
+identidade e HTTP 200 em `/health` com identidade válida; ambos têm zero
+membros públicos. O plano Terraform pós-rollout retornou `No changes`.
+
+Ainda não existe custo real consolidado no D0. Permanecem válidos o custo
+incremental esperado de US$ 0,33/mês, o limite de US$ 10/mês e a parada em
+2.000 documentos. A primeira comparação de cobrança será registrada em D+1.
