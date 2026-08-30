@@ -249,9 +249,29 @@ jobs:
             --format=json \
             | jq -r '.bindings[]? | select(.role == "roles/run.invoker") | .members[]?')
 
+          app_invoker_iam_disabled=$(gcloud run services describe "$CLOUD_RUN_SERVICE" \
+            --project "$GCP_PROJECT_ID" \
+            --region "$GCP_REGION" \
+            --format=json \
+            | jq -r '.metadata.annotations["run.googleapis.com/invoker-iam-disabled"] // "false"')
+
+          renderer_invoker_iam_disabled=$(gcloud run services describe "$BROWSER_RENDERER_SERVICE" \
+            --project "$GCP_PROJECT_ID" \
+            --region "$GCP_REGION" \
+            --format=json \
+            | jq -r '.metadata.annotations["run.googleapis.com/invoker-iam-disabled"] // "false"')
+
+          if [[ "$renderer_invoker_iam_disabled" != "false" ]]; then
+            echo "::error::The isolated browser renderer must always enforce the Invoker IAM check."
+            exit 1
+          fi
+
           if [[ "$PUBLIC_ACCESS_ENABLED" == "true" ]]; then
-            grep -Fqx "allUsers" <<< "$iam_members"
-          elif grep -Fqx "allUsers" <<< "$iam_members"; then
+            if [[ "$app_invoker_iam_disabled" != "true" ]]; then
+              echo "::error::The public application rollout did not disable the Invoker IAM check."
+              exit 1
+            fi
+          elif [[ "$app_invoker_iam_disabled" != "false" ]] || grep -Fqx "allUsers" <<< "$iam_members"; then
             echo "::error::Cloud Run became public during the private rollout phase."
             exit 1
           fi

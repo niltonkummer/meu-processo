@@ -46,11 +46,6 @@ run "service_is_private_by_default_and_scales_to_zero" {
   }
 
   assert {
-    condition     = length(google_cloud_run_v2_service_iam_member.public_invoker) == 0
-    error_message = "Public invocation must require an explicit rollout flag."
-  }
-
-  assert {
     condition     = google_cloud_run_v2_service.app.template[0].scaling[0].min_instance_count == 0
     error_message = "The validation service must scale to zero."
   }
@@ -82,18 +77,13 @@ run "public_validation_edge_requires_explicit_flag" {
   }
 
   assert {
-    condition     = length(google_cloud_run_v2_service_iam_member.public_invoker) == 1
-    error_message = "The explicit public rollout flag must create one invoker binding."
+    condition     = google_cloud_run_v2_service.app.invoker_iam_disabled == true
+    error_message = "The explicit public rollout flag must disable the invoker IAM check only on the application."
   }
 
   assert {
-    condition     = google_cloud_run_v2_service_iam_member.public_invoker[0].role == "roles/run.invoker"
-    error_message = "The public edge may grant only the Cloud Run invoker role."
-  }
-
-  assert {
-    condition     = google_cloud_run_v2_service_iam_member.public_invoker[0].member == "allUsers"
-    error_message = "The validation frontend requires unauthenticated HTTP reachability."
+    condition     = google_cloud_run_v2_service.browser_renderer.invoker_iam_disabled == false
+    error_message = "Public frontend reachability must never disable IAM on the isolated browser renderer."
   }
 }
 
