@@ -1,7 +1,131 @@
 name: meu-processo
 
 services:
-  app:
+  postgres:
+    build:
+      context: ./database/docker
+    image: meu-processo-postgres:local
+    init: true
+    read_only: true
+    cpus: 0.5
+    mem_limit: 256m
+    pids_limit: 256
+    environment:
+      POSTGRES_DB: meu_processo
+      POSTGRES_PASSWORD: local-only-superuser-password
+      POSTGRES_USER: postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./database/bootstrap:/docker-entrypoint-initdb.d:ro
+      - ./database/migrations:/database/migrations:ro
+      - ./database/local:/database/local:ro
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+      - /var/run/postgresql:size=8m,mode=0770,uid=999,gid=999
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "meu_processo"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    networks:
+      - default
+      - document-materialization
+
+  database-test:
+    profiles: ["test"]
+    image: meu-processo-postgres:local
+    entrypoint: ["pg_prove"]
+    command:
+      - --host=postgres
+      - --username=postgres
+      - --dbname=meu_processo
+      - /database/tests/0001_foundation_test.sql
+      - /database/tests/0002_monitoring_worker_test.sql
+      - /database/tests/0003_monitoring_profile_registration_test.sql
+      - /database/tests/0004_case_evidence_test.sql
+      - /database/tests/0005_outbox_dispatcher_test.sql
+      - /database/tests/0006_internal_alerts_test.sql
+      - /database/tests/0007_case_timeline_test.sql
+      - /database/tests/0008_document_catalog_test.sql
+      - /database/tests/0009_document_delivery_test.sql
+      - /database/tests/0010_document_materialization_test.sql
+      - /database/tests/0011_tenant_data_lifecycle_test.sql
+      - /database/tests/0012_tenant_lifecycle_worker_test.sql
+      - /database/tests/0013_account_data_controls_test.sql
+      - /database/tests/0014_supavisor_readiness_test.sql
+    read_only: true
+    environment:
+      PGPASSWORD: local-only-superuser-password
+    volumes:
+      - ./database/tests:/database/tests:ro
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  database-contract-test:
+    profiles: ["test"]
+    build:
+      context: .
+      target: test
+    image: meu-processo:test
+    command: ["npm", "run", "test:database"]
+    working_dir: /app
+    read_only: true
+    environment:
+      DATABASE_ADMIN_URL: postgresql://postgres:local-only-superuser-password@postgres:5432/meu_processo
+      DATABASE_URL: postgresql://app_runtime_local:local-only-runtime-password@postgres:5432/meu_processo
+      WORKER_DATABASE_URL: postgresql://app_worker_local:local-only-worker-password@postgres:5432/meu_processo
+      DISPATCHER_DATABASE_URL: postgresql://app_dispatcher_local:local-only-dispatcher-password@postgres:5432/meu_processo
+      DOCUMENT_WORKER_DATABASE_URL: postgresql://app_document_worker_local:local-only-document-worker-password@postgres:5432/meu_processo
+      LIFECYCLE_WORKER_DATABASE_URL: postgresql://app_lifecycle_worker_local:local-only-lifecycle-worker-password@postgres:5432/meu_processo
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      - /app/node_modules/.vite-temp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  database-restore-test:
+    profiles: ["test"]
+    image: meu-processo-postgres:local
+    entrypoint: ["bash"]
+    command: ["/database/scripts/verify_backup_restore.sh"]
+    read_only: true
+    environment:
+      PGDATABASE: meu_processo
+      PGHOST: postgres
+      PGPASSWORD: local-only-superuser-password
+      PGUSER: postgres
+      RESTORE_DATABASE: meu_processo_restore
+    volumes:
+      - ./database/scripts:/database/scripts:ro
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  monitoring-worker:
+    profiles: ["worker"]
     build:
       context: .
       target: production
@@ -11,6 +135,187 @@ services:
         VITE_FIREBASE_PROJECT_ID: demo-meu-processo
         VITE_FIREBASE_APP_ID: demo-web-app
         VITE_FIREBASE_AUTH_EMULATOR_URL: http://127.0.0.1:9099
+    image: meu-processo:local
+    command: ["dist/api/monitoring-worker-main.js"]
+    init: true
+    restart: "no"
+    read_only: true
+    cpus: 0.5
+    mem_limit: 256m
+    pids_limit: 128
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      WORKER_DATABASE_URL: postgresql://app_worker_local:local-only-worker-password@postgres:5432/meu_processo
+      WORKER_DATABASE_POOL_MAX: "5"
+      WORKER_ID: compose-one-shot
+      WORKER_BATCH_SIZE: "10"
+      WORKER_LEASE_DURATION_MS: "60000"
+      WORKER_SUCCESS_INTERVAL_MS: "86400000"
+      WORKER_BASE_BACKOFF_MS: "300000"
+      WORKER_MAX_BACKOFF_MS: "86400000"
+      WORKER_MAX_FAILURES: "5"
+      IDENTIFIER_ACTIVE_KEY_VERSION: v1
+      IDENTIFIER_ENCRYPTION_KEYS_JSON: '{"v1":"AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"}'
+      IDENTIFIER_BLIND_INDEX_VERSION: v1
+      IDENTIFIER_BLIND_INDEX_KEY_BASE64URL: AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  outbox-dispatcher:
+    profiles: ["worker"]
+    build:
+      context: .
+      target: production
+      args:
+        VITE_FIREBASE_BROWSER_KEY: demo-browser-key
+        VITE_FIREBASE_AUTH_DOMAIN: demo-meu-processo.firebaseapp.com
+        VITE_FIREBASE_PROJECT_ID: demo-meu-processo
+        VITE_FIREBASE_APP_ID: demo-web-app
+        VITE_FIREBASE_AUTH_EMULATOR_URL: http://127.0.0.1:9099
+    image: meu-processo:local
+    command: ["dist/api/outbox-dispatcher-main.js"]
+    init: true
+    restart: "no"
+    read_only: true
+    cpus: 0.5
+    mem_limit: 256m
+    pids_limit: 128
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      DISPATCHER_DATABASE_URL: postgresql://app_dispatcher_local:local-only-dispatcher-password@postgres:5432/meu_processo
+      DISPATCHER_DATABASE_POOL_MAX: "5"
+      DISPATCHER_ID: compose-one-shot
+      DISPATCHER_BATCH_SIZE: "10"
+      DISPATCHER_LEASE_DURATION_MS: "60000"
+      DISPATCHER_BASE_BACKOFF_MS: "60000"
+      DISPATCHER_MAX_BACKOFF_MS: "3600000"
+      DISPATCHER_MAX_ATTEMPTS: "5"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  document-materialization-worker:
+    profiles: ["worker"]
+    build:
+      context: .
+      target: production
+      args:
+        VITE_FIREBASE_BROWSER_KEY: demo-browser-key
+        VITE_FIREBASE_AUTH_DOMAIN: demo-meu-processo.firebaseapp.com
+        VITE_FIREBASE_PROJECT_ID: demo-meu-processo
+        VITE_FIREBASE_APP_ID: demo-web-app
+        VITE_FIREBASE_AUTH_EMULATOR_URL: http://127.0.0.1:9099
+    image: meu-processo:local
+    command: ["dist/api/document-materialization-worker-main.js"]
+    user: "${LOCAL_UID:-501}:${LOCAL_GID:-20}"
+    init: true
+    restart: "no"
+    read_only: true
+    cpus: 0.5
+    mem_limit: 320m
+    pids_limit: 128
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      DOCUMENT_MATERIALIZATION_MODE: local-fixture
+      DOCUMENT_WORKER_DATABASE_URL: postgresql://app_document_worker_local:local-only-document-worker-password@postgres:5432/meu_processo
+      DOCUMENT_WORKER_DATABASE_POOL_MAX: "5"
+      DOCUMENT_WORKER_ID: compose-document-one-shot
+      DOCUMENT_WORKER_BATCH_SIZE: "10"
+      DOCUMENT_WORKER_LEASE_DURATION_MS: "60000"
+      DOCUMENT_WORKER_BASE_BACKOFF_MS: "60000"
+      DOCUMENT_WORKER_MAX_BACKOFF_MS: "3600000"
+      DOCUMENT_WORKER_MAX_ATTEMPTS: "5"
+      DOCUMENT_MAX_BYTES: "26214400"
+      DOCUMENT_ARTIFACT_TTL_MS: "86400000"
+      DOCUMENT_FIXTURE_SOURCE_CODE: synthetic-worker
+      DOCUMENT_FIXTURE_ROOT: /var/lib/meu-processo/document-fixtures
+      DOCUMENT_MATERIALIZATION_ROOT: /var/lib/meu-processo/document-objects
+    volumes:
+      - ./.local/document-fixtures:/var/lib/meu-processo/document-fixtures:ro
+      - ./.local/document-objects:/var/lib/meu-processo/document-objects:rw
+    networks:
+      - document-materialization
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  tenant-data-lifecycle-worker:
+    profiles: ["worker"]
+    build:
+      context: .
+      target: production
+      args:
+        VITE_FIREBASE_BROWSER_KEY: demo-browser-key
+        VITE_FIREBASE_AUTH_DOMAIN: demo-meu-processo.firebaseapp.com
+        VITE_FIREBASE_PROJECT_ID: demo-meu-processo
+        VITE_FIREBASE_APP_ID: demo-web-app
+        VITE_FIREBASE_AUTH_EMULATOR_URL: http://127.0.0.1:9099
+    image: meu-processo:local
+    command: ["dist/api/tenant-data-lifecycle-worker-main.js"]
+    user: "${LOCAL_UID:-501}:${LOCAL_GID:-20}"
+    init: true
+    restart: "no"
+    read_only: true
+    cpus: 0.5
+    mem_limit: 256m
+    pids_limit: 128
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      TENANT_LIFECYCLE_MODE: local
+      TENANT_LIFECYCLE_DATABASE_URL: postgresql://app_lifecycle_worker_local:local-only-lifecycle-worker-password@postgres:5432/meu_processo
+      TENANT_LIFECYCLE_DATABASE_POOL_MAX: "5"
+      TENANT_LIFECYCLE_OBJECT_ROOT: /var/lib/meu-processo/document-objects
+      TENANT_LIFECYCLE_WORKER_ID: compose-lifecycle-one-shot
+      TENANT_LIFECYCLE_BATCH_SIZE: "10"
+      TENANT_LIFECYCLE_LEASE_DURATION_MS: "60000"
+      TENANT_LIFECYCLE_BASE_BACKOFF_MS: "60000"
+      TENANT_LIFECYCLE_MAX_BACKOFF_MS: "3600000"
+      TENANT_LIFECYCLE_MAX_ATTEMPTS: "3"
+      TENANT_LIFECYCLE_MAX_EXPORT_BYTES: "10485760"
+      TENANT_LIFECYCLE_EXPIRATION_BATCH_SIZE: "10"
+      IDENTIFIER_ACTIVE_KEY_VERSION: v1
+      IDENTIFIER_ENCRYPTION_KEYS_JSON: '{"v1":"AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"}'
+      IDENTIFIER_BLIND_INDEX_VERSION: v1
+      IDENTIFIER_BLIND_INDEX_KEY_BASE64URL: AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM
+    volumes:
+      - ./.local/document-objects:/var/lib/meu-processo/document-objects:rw
+    networks:
+      - document-materialization
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  app:
+    build:
+      context: .
+      target: production
+      args:
+        VITE_FIREBASE_BROWSER_KEY: demo-browser-key
+        VITE_FIREBASE_AUTH_DOMAIN: demo-meu-processo.firebaseapp.com
+        VITE_FIREBASE_PROJECT_ID: demo-meu-processo
+        VITE_FIREBASE_APP_ID: demo-web-app
+        VITE_FIREBASE_AUTH_EMULATOR_URL: ${AUTH_EMULATOR_BROWSER_ORIGIN:-http://127.0.0.1:9099}
     image: meu-processo:local
     init: true
     ports:
@@ -27,12 +332,28 @@ services:
       BROWSER_RENDERER_AUTH_MODE: disabled
       BROWSER_RENDERER_URL: http://browser-renderer:8080
       FIREBASE_AUTH_EMULATOR_HOST: auth-emulator:9099
+      FIREBASE_AUTH_EMULATOR_BROWSER_ORIGIN: ${AUTH_EMULATOR_BROWSER_ORIGIN:-http://127.0.0.1:9099}
       GOOGLE_CLOUD_PROJECT: demo-meu-processo
       DJEN_SEARCH_PROXY_URL: ${DJEN_SEARCH_PROXY_URL:-}
+      FOUNDATION_MODE: postgres
+      DATABASE_URL: postgresql://app_runtime_local:local-only-runtime-password@postgres:5432/meu_processo
+      DATABASE_POOL_MAX: "5"
+      DOCUMENT_DELIVERY_MODE: local
+      DOCUMENT_OBJECT_ROOT: /var/lib/meu-processo/documents
+      DOCUMENT_DOWNLOAD_QUOTA_PER_MINUTE: "20"
+      DOCUMENT_MAX_BYTES: "26214400"
+      IDENTIFIER_ACTIVE_KEY_VERSION: v1
+      IDENTIFIER_ENCRYPTION_KEYS_JSON: '{"v1":"AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"}'
+      IDENTIFIER_BLIND_INDEX_VERSION: v1
+      IDENTIFIER_BLIND_INDEX_KEY_BASE64URL: AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM
+    volumes:
+      - ./.local/document-objects:/var/lib/meu-processo/documents:ro
     depends_on:
       auth-emulator:
         condition: service_healthy
       browser-renderer:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     healthcheck:
       test:
@@ -116,3 +437,10 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+
+volumes:
+  postgres-data:
+
+networks:
+  document-materialization:
+    internal: true

@@ -17,6 +17,32 @@ nome esperado pelo SDK, mas não concede acesso aos dados.
 
 O repositório de imagens usa uma chave Cloud KMS controlada pelo projeto, com rotação a cada 90 dias. Essa escolha elimina uma falha de política do baseline de segurança, mas acrescenta o custo mensal da chave e das operações criptográficas ao MVP.
 
+## Fundação gerenciada passiva
+
+A base do produto principal é deliberadamente opt-in e plan-only. Com os
+defaults, nenhum bucket, secret container ou identidade adicional é incluído.
+Para revisar o desenho sem autorizar rollout:
+
+```bash
+terraform test
+infracost breakdown \
+  --path=. \
+  --terraform-var-file=infracost.tfvars
+```
+
+O opt-in declara um bucket GCS privado/CMEK, sete secret containers vazios e
+cinco identidades de workload. Não declara secret versions, Cloud Run Jobs ou
+Scheduler. Infisical continua sendo a fonte de verdade; a futura projeção para
+Secret Manager e qualquer runtime ativo exigem um gate separado.
+
+O materializador possui `objectCreator` e `objectViewer`: cria objetos novos com
+precondition e relê apenas para provar idempotência quando o locator
+determinístico já existe. Ele não recebe permissão de apagar ou sobrescrever.
+
+`infracost.tfvars` contém somente valores sintéticos, não é carregado
+automaticamente pelo Terraform e nunca deve ser usado em `apply`. A avaliação
+vigente é [`docs/costs/0036-managed-foundation-plan-only.md`](../../docs/costs/0036-managed-foundation-plan-only.md).
+
 ## Estado remoto
 
 O bloco `backend "gcs"` é parcial. A implantação de validação usa o bucket

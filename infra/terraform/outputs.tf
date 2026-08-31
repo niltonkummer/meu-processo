@@ -43,3 +43,26 @@ output "firebase_web_config" {
   }
   sensitive = true
 }
+
+output "managed_foundation_enabled" {
+  description = "Whether the passive managed foundation is included in this plan. This is not rollout approval."
+  value       = var.managed_foundation_enabled
+}
+
+output "process_object_bucket" {
+  description = "Private process-object bucket name when the passive foundation is included."
+  value       = try(google_storage_bucket.process_objects[0].name, null)
+}
+
+output "managed_secret_ids" {
+  description = "Secret Manager container IDs. Values and versions are intentionally never managed by this state."
+  value       = var.managed_foundation_enabled ? local.managed_secret_ids : {}
+}
+
+output "managed_workload_service_accounts" {
+  description = "Least-privilege workload identities reserved by the passive foundation."
+  value = {
+    for workload, account in google_service_account.managed_workload :
+    workload => account.email
+  }
+}

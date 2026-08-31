@@ -7,6 +7,7 @@ export interface VerifiedIdentity {
   userId: string;
   email: string;
   emailVerified: boolean;
+  authenticatedAt: Date;
 }
 
 export interface IdentityTokenDecoder {
@@ -40,7 +41,9 @@ export class VerifiedTokenAuthenticator implements TokenVerifier {
     const identity = await this.decoder.decode(token);
     if (
       identity.userId.trim().length === 0 ||
-      identity.email.trim().length === 0
+      identity.email.trim().length === 0 ||
+      !(identity.authenticatedAt instanceof Date) ||
+      Number.isNaN(identity.authenticatedAt.getTime())
     ) {
       throw new AuthenticationRejectedError();
     }
@@ -49,6 +52,7 @@ export class VerifiedTokenAuthenticator implements TokenVerifier {
     return {
       userId: identity.userId,
       memberships: memberships.filter((membership) => membership.active),
+      authenticatedAt: identity.authenticatedAt,
     };
   }
 }

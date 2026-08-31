@@ -539,13 +539,17 @@ Firebase Hosting + Authentication
 Cloud Run API privada por identidade
       │              │
       │              ├── gateway de documentos no Brasil
-      │              ├── Firestore: usuários, carteira, estado e alertas
+      │              ├── Supabase PostgreSQL: usuários, carteira, estado e alertas
       │              └── Cloud Storage: originais, cache e exportações
       │
 Cloud Scheduler ──► coletor idempotente
 Cloud Tasks ──────► consultas e downloads com retry/rate limit
 Cloud Run Job ────► empacotamento de exportações maiores
 ```
+
+Infisical é a fonte de verdade dos segredos e sincroniza o namespace autorizado
+para o Google Secret Manager, consumido pelo Cloud Run por IAM. O runtime não
+consulta o vault por request e o frontend nunca recebe credenciais.
 
 Google Cloud Workflows não é necessário nesta fase. Cloud Tasks controla
 trabalhos curtos e retries; Cloud Run Jobs atende exportações que ultrapassem o
@@ -696,7 +700,7 @@ CPF/CNPJ, texto processual, URL assinada, conteúdo de documento ou token.
 - unitários para normalização, deduplicação e regras de estado;
 - contrato com fixtures anonimizadas por fonte;
 - propriedade/fuzz para CNJ, nomes de arquivo, manifestos e identificadores;
-- integração com Firestore e Storage Emulator;
+- integração com Supabase/PostgreSQL e storage locais;
 - integração de fila e worker com serviços locais controlados;
 - E2E dos modos simples e avançado;
 - acessibilidade automatizada e navegação por teclado;
@@ -779,7 +783,7 @@ Testar:
 - autenticação;
 - organização, papéis e isolamento;
 - modelo canônico de processo, fonte e monitoramento;
-- Firestore e Storage Emulator;
+- Supabase/PostgreSQL e storage locais;
 - trilha de auditoria mínima.
 
 ### Fase B — Experiência simples prioritária

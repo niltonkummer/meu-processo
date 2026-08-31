@@ -4,3 +4,8 @@ environment  = "validation"
 service_name = "meu-processo-mvp"
 image_uri    = "southamerica-east1-docker.pkg.dev/meu-processo-507018/meu-processo/app:0123456789abcdef"
 browser_renderer_image_uri = "southamerica-east1-docker.pkg.dev/meu-processo-507018/meu-processo/renderer:0123456789abcdef"
+
+# Plan-only opt-in. This does not authorize terraform apply.
+# managed_foundation_enabled         = true
+# managed_foundation_acknowledgement = "PLAN_ONLY_NO_APPLY"
+# process_object_bucket_name         = "globally-unique-private-bucket-name"

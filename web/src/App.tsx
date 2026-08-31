@@ -1,16 +1,23 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 
 import { AccountAccess } from "./AccountAccess";
+import { ActivityCenter } from "./ActivityCenter";
+import { AccountDataControls } from "./AccountDataControls";
 import type { AuthClient, AuthenticatedWebSession } from "./auth-client";
 import {
   openDocumentSession,
   type DocumentSessionControl,
 } from "./document-session-client";
 import {
-  loadTargets,
-  saveTarget,
-  type StoredTarget,
-  type StoredTargetType,
+  archiveMonitoringProfile,
+  createMonitoringProfile,
+  listMonitoringProfiles,
+  type MonitoringProfile,
+  type MonitoringProfileType,
+  SafeMonitoringProfileError,
+} from "./monitoring-profile-client";
+import {
+  clearLegacyTargets,
 } from "./target-storage";
 
 interface SearchPublication {
@@ -37,7 +44,7 @@ interface SearchProcess {
 interface SearchResponse {
   target: {
     id: string;
-    type: StoredTargetType;
+    type: MonitoringProfileType;
     displayValue: string;
   };
   source: {
@@ -70,7 +77,7 @@ interface PublicationChallenge {
 
 type ViewMode = "simple" | "advanced";
 
-const labels: Record<StoredTargetType, { input: string; placeholder: string }> = {
+const labels: Record<MonitoringProfileType, { input: string; placeholder: string }> = {
   name: { input: "Nome completo", placeholder: "Ex.: Maria da Silva" },
   cpf: { input: "Número do CPF", placeholder: "000.000.000-00" },
   cnpj: { input: "Número do CNPJ", placeholder: "00.000.000/0000-00" },
@@ -144,9 +151,11 @@ export function App({
   saveFile?: (blob: Blob, fileName: string) => void;
   openSession?: typeof openDocumentSession;
 }) {
-  const [type, setType] = useState<StoredTargetType>("name");
+  const [type, setType] = useState<MonitoringProfileType>("name");
   const [value, setValue] = useState("");
-  const [targets, setTargets] = useState<StoredTarget[]>(() => loadTargets(storage));
+  const [profiles, setProfiles] = useState<readonly MonitoringProfile[]>([]);
+  const [profilesLoading, setProfilesLoading] = useState(false);
+  const [profileUpdatingId, setProfileUpdatingId] = useState("");
   const [result, setResult] = useState<SearchResponse>();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -157,15 +166,41 @@ export function App({
   const [publicationChallenge, setPublicationChallenge] =
     useState<PublicationChallenge>();
   const documentSession = useRef<DocumentSessionControl | undefined>(undefined);
+  const profileLoadGeneration = useRef(0);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    clearLegacyTargets(storage);
+    return () => {
       documentSession.current?.close();
-    },
-    [],
-  );
+    };
+  }, [storage]);
 
-  const runSearch = async (targetType: StoredTargetType, targetValue: string) => {
+  const loadProfiles = async (
+    session: AuthenticatedWebSession,
+    generation: number,
+  ) => {
+    setProfilesLoading(true);
+    try {
+      const token = await session.getIdToken();
+      const loaded = await listMonitoringProfiles(fetcher, token);
+      if (profileLoadGeneration.current === generation) setProfiles(loaded);
+    } catch (caught) {
+      if (profileLoadGeneration.current === generation) {
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "Não foi possível carregar seus perfis monitorados.",
+        );
+      }
+    } finally {
+      if (profileLoadGeneration.current === generation) setProfilesLoading(false);
+    }
+  };
+
+  const runSearch = async (
+    targetType: MonitoringProfileType,
+    targetValue: string,
+  ) => {
     if (!authSession) {
       setError("Entre na sua conta para consultar a fonte oficial.");
       return;
@@ -174,6 +209,26 @@ export function App({
     setError("");
     try {
       const token = await authSession.getIdToken();
+      try {
+        const profile = await createMonitoringProfile(fetcher, token, {
+          type: targetType,
+          value: targetValue,
+        });
+        setProfiles((current) => [
+          profile,
+          ...current.filter((item) => item.subjectId !== profile.subjectId),
+        ]);
+      } catch (caught) {
+        if (
+          caught instanceof SafeMonitoringProfileError &&
+          caught.code === "MONITORING_PROFILE_CONFLICT"
+        ) {
+          const loaded = await listMonitoringProfiles(fetcher, token);
+          setProfiles(loaded);
+        } else {
+          throw caught;
+        }
+      }
       const response = await fetcher("/api/v1/searches", {
         method: "POST",
         headers: {
@@ -191,13 +246,6 @@ export function App({
 
       setResult(body);
       setSelectedProcess(undefined);
-      saveTarget(storage, {
-        id: body.target.id,
-        type: targetType,
-        value: targetValue,
-        displayValue: body.target.displayValue,
-      });
-      setTargets(loadTargets(storage));
     } catch (caught) {
       setResult(undefined);
       setError(
@@ -215,22 +263,44 @@ export function App({
     void runSearch(type, value);
   };
 
-  const reuseTarget = (target: StoredTarget) => {
-    setType(target.type);
-    setValue(target.value);
-    void runSearch(target.type, target.value);
-  };
-
   const changeSession = (session: AuthenticatedWebSession | undefined) => {
+    const generation = profileLoadGeneration.current + 1;
+    profileLoadGeneration.current = generation;
     setAuthSession(session);
-    if (!session) {
+    if (session) {
+      setError("");
+      void loadProfiles(session, generation);
+    } else {
       documentSession.current?.close();
       documentSession.current = undefined;
+      setProfiles([]);
+      setProfilesLoading(false);
       setResult(undefined);
       setSelectedProcess(undefined);
       setDownloadingPublication("");
       setPublicationChallenge(undefined);
       setError("");
+    }
+  };
+
+  const archiveProfile = async (profile: MonitoringProfile) => {
+    if (!authSession) return;
+    setProfileUpdatingId(profile.subjectId);
+    setError("");
+    try {
+      const token = await authSession.getIdToken();
+      await archiveMonitoringProfile(fetcher, token, profile);
+      setProfiles((current) =>
+        current.filter((item) => item.subjectId !== profile.subjectId),
+      );
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Não foi possível arquivar o perfil.",
+      );
+    } finally {
+      setProfileUpdatingId("");
     }
   };
 
@@ -311,6 +381,7 @@ export function App({
 
   return (
     <div className="app-shell">
+      <a className="skip-link" href="#top">Ir para o conteúdo principal</a>
       <header className="topbar">
         <a className="brand" href="#top" aria-label="Meu Processo — início">
           <span className="brand-mark" aria-hidden="true">MP</span>
@@ -348,8 +419,8 @@ export function App({
           <h1 id="page-title">Encontre publicações. Confirme cada processo.</h1>
           <p className="hero-copy">
             Consulte o Diário de Justiça Eletrônico Nacional e veja as publicações
-            agrupadas pelo número único do processo, sem criar uma base central com
-            seus dados nesta etapa.
+            agrupadas pelo número único do processo. Seus perfis ficam vinculados à
+            conta com identificadores protegidos e rótulos minimizados.
           </p>
         </section>
 
@@ -380,14 +451,19 @@ export function App({
             <div className="search-row">
               <input
                 id="target-value"
+                name="target-value"
                 value={value}
                 onChange={(event) => setValue(event.target.value)}
                 placeholder={labels[type].placeholder}
                 autoComplete="off"
                 required
               />
-              <button type="submit" disabled={loading}>
-                {loading ? "Consultando…" : "Cadastrar e buscar"}
+              <button type="submit" disabled={loading || profilesLoading}>
+                {loading
+                  ? "Consultando…"
+                  : profilesLoading
+                    ? "Carregando conta…"
+                    : "Cadastrar e buscar"}
               </button>
             </div>
 
@@ -398,25 +474,42 @@ export function App({
               </p>
             )}
             <p className="privacy-note">
-              Os alvos ficam somente neste navegador. O servidor não mantém cadastro
-              nem histórico nesta validação.
+              O navegador não grava o nome ou documento informado. A conta recebe
+              somente um rótulo minimizado; o identificador é cifrado no servidor.
             </p>
           </form>
 
           <aside className="saved-panel" aria-labelledby="saved-title">
             <div className="panel-heading">
-              <h2 id="saved-title">Alvos neste navegador</h2>
-              <span>{targets.length}</span>
+              <h2 id="saved-title">Perfis monitorados</h2>
+              <span>{profiles.length}</span>
             </div>
-            {targets.length === 0 ? (
-              <p className="empty-copy">Nenhum alvo cadastrado ainda.</p>
+            {profilesLoading ? (
+              <p className="empty-copy" role="status">Carregando perfis…</p>
+            ) : profiles.length === 0 ? (
+              <p className="empty-copy">Nenhum perfil ativo cadastrado.</p>
             ) : (
               <ul className="target-list">
-                {targets.map((target) => (
-                  <li key={target.id}>
-                    <button type="button" onClick={() => reuseTarget(target)}>
-                      <span>{target.type === "name" ? "Nome" : target.type.toUpperCase()}</span>
-                      <strong>{target.displayValue}</strong>
+                {profiles.map((profile) => (
+                  <li key={profile.subjectId}>
+                    <div className="profile-summary">
+                      <span>
+                        {profile.subjectType === "name"
+                          ? "Nome"
+                          : profile.subjectType.toUpperCase()}
+                      </span>
+                      <strong>{profile.displayLabel}</strong>
+                    </div>
+                    <button
+                      className="profile-archive"
+                      type="button"
+                      disabled={profileUpdatingId === profile.subjectId}
+                      onClick={() => void archiveProfile(profile)}
+                      aria-label={`Arquivar perfil ${profile.displayLabel}`}
+                    >
+                      {profileUpdatingId === profile.subjectId
+                        ? "Arquivando…"
+                        : "Arquivar"}
                     </button>
                   </li>
                 ))}
@@ -433,6 +526,23 @@ export function App({
         ) : null}
 
         {error && <p className="error-banner" role="alert">{error}</p>}
+
+        {authSession ? (
+          <>
+            <ActivityCenter
+              session={authSession}
+              fetcher={fetcher}
+              viewMode={viewMode}
+              profileCount={profiles.filter((profile) => profile.status === "active").length}
+              profilesLoading={profilesLoading}
+            />
+            <AccountDataControls
+              fetcher={fetcher}
+              session={authSession}
+              saveFile={saveFile}
+            />
+          </>
+        ) : null}
 
         {result && (
           <section className="results" aria-labelledby="results-title">
@@ -529,6 +639,8 @@ export function App({
                                     <img
                                       src={publicationChallenge.imageDataUrl}
                                       alt="Código de segurança exibido pelo tribunal"
+                                      width="220"
+                                      height="120"
                                     />
                                     <label htmlFor={`challenge-${operationId}`}>
                                       Código de segurança
@@ -536,9 +648,11 @@ export function App({
                                     <div className="challenge-actions">
                                       <input
                                         id={`challenge-${operationId}`}
+                                        name="challenge-answer"
                                         value={publicationChallenge.answer}
                                         maxLength={32}
                                         autoComplete="off"
+                                        spellCheck={false}
                                         pattern="[A-Za-z0-9]+"
                                         required
                                         onChange={(event) =>
@@ -600,9 +714,9 @@ export function App({
                 <div className="portfolio-intro">
                   <div>
                     <span className="court">Visão profissional</span>
-                    <h3>Carteira avançada</h3>
+                    <h3>Resultado técnico da consulta atual</h3>
                   </div>
-                  <p>Os mesmos fatos da visão simples, organizados para conferência rápida.</p>
+                  <p>Validação pontual da fonte oficial; a carteira monitorada permanece acima.</p>
                 </div>
                 <div className="table-scroll" tabIndex={0} aria-label="Tabela da carteira de processos">
                   <table className="portfolio-table">
@@ -717,7 +831,7 @@ export function App({
       </main>
 
       <footer>
-        <span>Validação técnica · dados não persistidos no servidor</span>
+        <span>Perfis protegidos · respostas privadas e sem cache</span>
         <span>Confirme informações críticas no tribunal de origem.</span>
       </footer>
     </div>

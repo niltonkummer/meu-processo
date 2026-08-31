@@ -1,7 +1,7 @@
 # Meu Processo — plano de produto, arquitetura e custos
 
 **Status:** proposta de trabalho
-**Atualizado em:** 29 de agosto de 2026
+**Atualizado em:** 30 de agosto de 2026
 **Projeto Google Cloud:** `meu-processo-507018`
 **Região principal:** São Paulo (`southamerica-east1`)
 
@@ -22,6 +22,25 @@ O sistema consulta fontes oficiais, descobre novas publicações, organiza os pr
 O produto buscará paridade funcional progressiva com a categoria de acompanhamento processual de plataformas jurídicas consolidadas, mantendo base, marca, código e interface próprios. A experiência simples será prioritária para pessoa física; advogados e escritórios terão uma visão avançada sobre os mesmos fatos, com carteira, filtros, auditoria e ações em lote.
 
 Documentos públicos poderão ser acessados por um gateway brasileiro e baixados em lote por trabalhos assíncronos. Não haverá cópia de base proprietária, conteúdo editorial, doutrina, modelos ou peças de terceiros. A especificação completa está em [Spec 0002 — Paridade funcional em acompanhamento processual](./docs/specs/0002-process-monitoring-functional-parity.md).
+
+O panorama das plataformas de acompanhamento, pesquisa, IA, conteúdo e soluções
+corporativas observado em 30 de agosto de 2026 está consolidado na
+[Spec 0008 — panorama funcional e requisitos-alvo](./docs/specs/0008-jusbrasil-functional-landscape.md).
+A ordem de implementação, os gates por fase e o backlog executável estão no
+[Roadmap 0008](./docs/implementation/0008-functional-requirements-roadmap.md).
+Esses documentos são referência de produto; não autorizam copiar conteúdo ou
+base de terceiros e não substituem a avaliação de custo de cada fatia.
+
+A fundação arquitetural obrigatória para crescer sem misturar tenants, acoplar
+fontes ou antecipar microservices está na
+[Spec 0009 — fundação expansível](./docs/specs/0009-scalable-product-foundation.md)
+e no [Roadmap 0009](./docs/implementation/0009-scalable-foundation-roadmap.md).
+O modelo lógico de entidades, relações, cardinalidades e a projeção inicial de
+persistência estão no [MER 0001](./docs/data/0001-system-entity-relationship-model.md).
+A plataforma de dados e segredos está decidida para planejamento nas
+[ADRs 0016 — Supabase PostgreSQL](./docs/adr/0016-managed-supabase-postgres.md) e
+[0017 — Infisical](./docs/adr/0017-infisical-secrets-control-plane.md), com adoção
+gradual no [Plano 0010](./docs/implementation/0010-supabase-infisical-adoption-plan.md).
 
 ### Limite jurídico atual
 
@@ -58,7 +77,8 @@ O MVP precisa provar apenas cinco coisas:
 - Deduplicação por comunicação, processo e data.
 - Linha do tempo por processo.
 - Painel privado.
-- Alerta inicialmente dentro do painel; e-mail como próximo passo.
+- Alerta inicialmente dentro do painel; Brevo será o canal transacional do
+  próximo passo, após remetente próprio verificado e implementação da outbox.
 - Registro da última execução, sucesso, falha e quantidade de resultados.
 
 ### O que fica fora do MVP
@@ -71,7 +91,7 @@ O MVP precisa provar apenas cinco coisas:
 - WhatsApp.
 - Pagamentos e assinaturas.
 - Redis, Elasticsearch/OpenSearch, Kafka ou Kubernetes.
-- Cloud SQL/PostgreSQL.
+- banco PostgreSQL gerenciado em produção antes da aprovação do novo teto;
 - Google Cloud Workflows.
 
 ## 3. Arquitetura mínima
@@ -85,7 +105,7 @@ Cloud Run — coletor/API privado
       ├── consulta DJEN a partir do Brasil
       ├── normaliza nomes e processos
       ├── calcula duplicidade
-      ├── grava estado ──────────────► Firestore
+      ├── grava estado ──────────────► Supabase PostgreSQL
       └── preserva resposta original ► Cloud Storage
                                            │
 Firebase Hosting ◄── Cloud Run API ◄───────┘
@@ -93,6 +113,11 @@ Firebase Hosting ◄── Cloud Run API ◄───────┘
       ▼
 Painel web privado + Firebase Authentication
 ```
+
+Infisical será a fonte de verdade dos segredos. Ele sincroniza somente os valores
+allowlisted para o Google Secret Manager, que os entrega ao Cloud Run por IAM. O
+runtime não consulta o vault em cada request e o navegador não acessa diretamente
+o banco.
 
 Todos os serviços que armazenam ou processam dados serão mantidos, quando possível, em São Paulo para reduzir latência, transferência entre regiões e dispersão de dados.
 
@@ -128,7 +153,7 @@ Política inicial:
 - versionamento apenas se a necessidade de auditoria justificar;
 - criptografia padrão do Google e acesso somente pelas contas de serviço.
 
-### 4.2 Firestore — banco operacional do MVP
+### 4.2 Supabase PostgreSQL — banco operacional planejado
 
 Função:
 
@@ -140,29 +165,37 @@ Função:
 - alertas;
 - ponteiros para os arquivos originais no Cloud Storage.
 
-Coleções sugeridas:
+Tabelas/áreas sugeridas:
 
 ```text
-users/{userId}
-subjects/{subjectId}
-monitoringTargets/{targetId}
-subscriptions/{subscriptionId}
-cases/{caseId}
-publications/{publicationId}
-monitorRuns/{runId}
-alerts/{alertId}
+user_accounts
+tenants / tenant_members
+monitored_subjects / monitoring_targets
+subscriptions / tenant_cases
+case_records / case_events / source_envelopes
+monitoring_runs / jobs / outbox_events
+alerts / audit_events
 sourceHealth/{sourceId}
 ```
 
 `monitoringTargets` representa uma consulta única e normalizada, por exemplo um número CNJ, um nome ou uma OAB. `subscriptions` liga um usuário a esse alvo. Assim, se várias pessoas acompanharem o mesmo processo, o sistema consulta a fonte uma vez e distribui o resultado aos assinantes autorizados.
 
-O texto integral muito grande não deve ser duplicado no Firestore. Ele fica comprimido no Cloud Storage; no Firestore mantemos o trecho necessário para o painel e o caminho do objeto original.
+O texto integral e os arquivos ficam comprimidos no Cloud Storage; no PostgreSQL
+mantemos somente o trecho necessário, metadados, hash e referência opaca.
+
+O Supabase será usado inicialmente como PostgreSQL gerenciado, não como segunda
+plataforma completa. Auth continua no Firebase, objetos continuam no GCS e API/
+workers continuam no Cloud Run. O Cloud Run conecta pelo Supavisor em transaction
+mode. Constraints, foreign keys, migrations e RLS forçada protegem as relações e
+o isolamento; a API continua aplicando autorização antes da consulta.
 
 ### 4.3 Banco de busca
 
 **Não será criado no MVP.**
 
-Firestore é suficiente para listar processos e publicações do usuário. Um mecanismo como Elasticsearch, OpenSearch, Typesense ou Meilisearch só será necessário quando existir uma base grande e usuários precisarem pesquisar texto livre, nomes e conteúdo histórico.
+PostgreSQL é suficiente para listar processos/publicações e a primeira busca
+textual controlada. Elasticsearch, OpenSearch, Typesense ou Meilisearch só será
+necessário quando a base e as consultas medidas excederem esses índices.
 
 Gatilhos para adicionar busca dedicada:
 
@@ -171,17 +204,11 @@ Gatilhos para adicionar busca dedicada:
 - necessidade de tolerância a erros de digitação e homônimos;
 - filtros combinados por tribunal, nome, assunto, classe e período.
 
-### 4.4 PostgreSQL/Cloud SQL
+### 4.4 Cloud SQL PostgreSQL
 
-**Não será usado agora.** Firestore elimina o custo fixo e a administração de uma instância.
-
-PostgreSQL passa a fazer sentido quando surgirem:
-
-- organizações e equipes;
-- permissões complexas;
-- faturamento e assinaturas;
-- relatórios relacionais;
-- necessidade forte de transações e integridade entre várias entidades.
+**Não será usado inicialmente.** É a alternativa de contingência se o Supabase
+não atender custo, latência cross-cloud, residência, DPA, disponibilidade ou
+restore. A decisão deve ser reaberta com medição, não por preferência de vendor.
 
 ### 4.5 BigQuery
 
@@ -193,7 +220,7 @@ PostgreSQL passa a fazer sentido quando surgirem:
 
 Não precisamos de Redis/Memorystore no MVP. Usaremos:
 
-- `lastCheckedAt` e `nextCheckAt` no Firestore;
+- `last_checked_at` e `next_check_at` no PostgreSQL;
 - deduplicação por hash/identificador da comunicação;
 - cabeçalhos HTTP e dados previamente gravados;
 - memória temporária apenas durante cada execução.
@@ -220,11 +247,12 @@ Todos devolvem um formato normalizado comum. Não precisamos operar um serviço 
 |---|---:|---|
 | Cloud Run | Sim | API privada e execução do coletor no Brasil |
 | Cloud Scheduler | Sim | Disparar a consulta diária |
-| Firestore | Sim | Estado operacional do produto |
+| Supabase PostgreSQL | Após aprovação de custo | Estado operacional, constraints, RLS e outbox |
 | Cloud Storage | Sim | Fonte original e arquivo histórico |
 | Firebase Authentication | Sim | Login do painel |
 | Firebase Hosting | Sim | Hospedar o frontend estático |
-| Secret Manager | Sim | Segredos futuros; evitar credenciais no código |
+| Infisical | Após spec de secrets | Fonte de verdade, ambientes, acesso e rotação |
+| Secret Manager | Sim | Projeção de entrega dos secrets ao runtime por IAM |
 | Cloud Logging/Monitoring | Sim | Falhas, duração e saúde das fontes |
 | Cloud Tasks | Na fase de monitoramento/lote | Fila e retry por alvo, fonte e documento |
 | Cloud Run Jobs | Na fase de lote | Empacotar exportações de documentos fora de uma requisição web |
@@ -232,7 +260,7 @@ Todos devolvem um formato normalizado comum. Não precisamos operar um serviço 
 | BigQuery | Depois | Análise histórica e métricas de cobertura |
 | Workflows | Não agora | Orquestração visual de fluxos longos e complexos |
 | Redis/Memorystore | Não agora | Cache de alta concorrência |
-| Cloud SQL | Não agora | Relacionamentos e faturamento mais complexos |
+| Cloud SQL | Contingência | Alternativa PostgreSQL se Supabase falhar nos gates |
 | OpenSearch/Elastic | Não agora | Busca textual em grande volume |
 
 ## 7. Workflows e processamento assíncrono
@@ -243,11 +271,11 @@ Google Cloud Workflows **não é necessário neste momento**. O fluxo diário ca
 agendamento → consulta → normalização → deduplicação → gravação → alerta
 ```
 
-O próprio código registra cada etapa no Firestore e pode retomar ou repetir uma execução sem criar duplicidades.
+O próprio código registra cada etapa no PostgreSQL e pode retomar ou repetir uma execução sem criar duplicidades.
 
 ### O que ativa o worker
 
-Hoje, o Cloud Run já publicado é um serviço sob demanda: ele escala de zero e só inicia quando recebe uma chamada HTTP, como `/search-djen`. O agendamento automático e a leitura do Firestore ainda serão implementados.
+Hoje, o Cloud Run já publicado é um serviço sob demanda: ele escala de zero e só inicia quando recebe uma chamada HTTP, como `/search-djen`. O agendamento automático e a leitura do PostgreSQL ainda serão implementados.
 
 No MVP, o worker trabalha somente com registros cadastrados e ativos. Não haverá pesquisa indiscriminada de pessoas que não tenham sido colocadas em monitoramento.
 
@@ -558,38 +586,56 @@ As faixas deste plano servem apenas como baseline de produto. Antes de qualquer 
 
 Mudanças Terraform deverão receber diff Infracost no pull request. A estimativa automática será complementada pela modelagem manual de consumo, egress, logs, retenção, e-mail, IA e APIs externas. O custo real será verificado 7 e 30 dias depois do deploy. O procedimento está em [Operação do gate de custo](./docs/operations/infra-cost-gate.md).
 
-### MVP pessoal
+### Validação atual, sem persistência gerenciada nova
 
 | Item | Estimativa mensal |
 |---|---:|
-| Cloud Run com escala a zero | US$ 0–2 |
-| Firestore | US$ 0–1 |
-| Cloud Storage, poucos GB | US$ 0–1 |
-| Cloud Scheduler, um job | US$ 0 |
-| Firebase Hosting/Auth | US$ 0 |
-| Secret Manager/Logging | US$ 0 |
-| **Total esperado** | **US$ 0–5/mês** |
+| Recursos GCP já aprovados | até US$ 0,38 |
+| Supabase | US$ 0; sandbox Free em São Paulo, sem dados |
+| Infisical | US$ 0; projeto Free com segredos de desenvolvimento |
+| Brevo | US$ 0; plano Free, 300 envios/dia; bootstrap sem envio |
+| **Total aprovado** | **até US$ 0,38/mês** |
 
-O Scheduler oferece três jobs gratuitos por conta de faturamento. Firestore oferece gratuitamente 1 GiB, 50 mil leituras/dia e 20 mil escritas/dia. Firebase Hosting oferece 10 GB de armazenamento e franquia de transferência. Cloud Run possui franquias de CPU e memória e escala para zero.
+O teto atual continua em US$ 10. Esta alteração de plano tem delta zero e não
+autoriza contas, projetos, secrets ou bancos externos.
 
-### Piloto com até 100 usuários
+### Piloto persistente planejado, ainda não aprovado
 
 | Item | Faixa mensal provisória |
 |---|---:|
-| Cloud Run/coleta | US$ 2–15 |
-| Firestore | US$ 1–10 |
-| Cloud Storage | US$ 1–10 |
-| E-mail transacional | US$ 0–20 |
+| Supabase Pro, um projeto Micro | a partir de US$ 25 |
+| Cloud Run/coleta | US$ 0–15 |
+| Cloud Storage | US$ 0–10 |
+| Infisical Free, até 5 identidades | US$ 0 |
+| Secret Manager | US$ 0–1 |
+| E-mail transacional Brevo | US$ 0–20; Free até 300 envios/dia, upgrade não aprovado |
 | Logs e observabilidade | US$ 0–5 |
-| **Total esperado** | **US$ 5–60/mês** |
+| **Total mínimo esperado** | **a partir de US$ 25/mês** |
 
 A variável mais importante não será o número de usuários isoladamente, e sim a quantidade de perfis/processos consultados, frequência, volume de publicações e necessidade de reprocessamento.
+
+Staging e production Supabase isolados ficam em aproximadamente US$ 35/mês
+antes de egress, backups avançados e GCP. Infisical Pro custa US$ 20 por
+identidade/mês com cobrança anual ou US$ 23 mensal; um exemplo com três
+identidades adicionaria US$ 60–69/mês. O Free pode validar até cinco identidades,
+mas recursos de produção como versionamento, recuperação, rotação e retenção de
+auditoria podem exigir upgrade. Nenhum desses valores está aprovado. O detalhe
+está na [Avaliação 0012](./docs/costs/0012-supabase-infisical-platform-planning.md).
+
+O Brevo foi escolhido como provedor transacional, com chave dedicada por
+ambiente e segredo centralizado no Infisical. O bootstrap tem custo zero, mas
+não autoriza envio: primeiro será necessário verificar domínio e remetente do
+Meu Processo, implementar outbox/webhooks e aprovar a mudança correspondente.
+A decisão está no [ADR 0018](./docs/adr/0018-brevo-transactional-email.md) e o
+bootstrap na [Avaliação 0015](./docs/costs/0015-brevo-transactional-email-bootstrap.md).
 
 Referências de preços:
 
 - [Cloud Run](https://cloud.google.com/run/pricing)
 - [Cloud Storage](https://cloud.google.com/storage/pricing)
-- [Firestore](https://cloud.google.com/firestore/pricing)
+- [Supabase](https://supabase.com/pricing)
+- [Infisical](https://infisical.com/pricing)
+- [Secret Manager](https://cloud.google.com/secret-manager/pricing)
 - [Cloud Scheduler](https://cloud.google.com/scheduler/pricing)
 - [Cloud Tasks](https://cloud.google.com/tasks/pricing)
 - [Pub/Sub](https://cloud.google.com/pubsub/pricing)
@@ -709,6 +755,15 @@ Ordem recomendada:
 10. Operar e medir cobertura, documentos, custo e falsos positivos por 30 dias.
 11. Medir cadernos reais de TJRS, TJSP e TRT4.
 12. Só então decidir sobre arquivo nacional, busca dedicada, IA e expansão comercial.
+
+O detalhamento desta sequência passa a ser normativo no
+[Roadmap 0008](./docs/implementation/0008-functional-requirements-roadmap.md).
+Quando houver divergência, prevalecem os gates mais restritivos e a spec menor
+aprovada para a fatia em execução.
+
+Antes dos itens persistentes desta lista, devem ser concluídas incrementalmente
+as etapas de módulos, configuração, `RequestContext`, repository contracts,
+evidência e jobs do [Roadmap 0009](./docs/implementation/0009-scalable-foundation-roadmap.md).
 
 ## 14. Guardrails de engenharia
 

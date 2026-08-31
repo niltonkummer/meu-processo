@@ -10,7 +10,41 @@ import type {
 } from "../application/document-gateway.js";
 import type { DjenPublicationLocator } from "../application/publication-proxy.js";
 import type { RequestRateLimiter } from "../application/request-rate-limiter.js";
+import type { MonitoringProfilesService } from "../application/monitoring-profiles.js";
+import type { PersonalCasePortfolioService } from "../application/persisted-case-portfolio.js";
+import {
+  AlertNotFoundError,
+  type PersonalAlertsService,
+} from "../application/internal-alerts.js";
+import {
+  CaseTimelineNotFoundError,
+  type PersonalCaseTimelineService,
+} from "../application/persisted-case-timeline.js";
+import {
+  CaseDocumentsNotFoundError,
+  type PersonalCaseDocumentsService,
+} from "../application/persisted-case-documents.js";
+import {
+  DocumentContentUnavailableError,
+  DocumentDownloadQuotaExceededError,
+  PersistedDocumentNotFoundError,
+  type PersonalDocumentDeliveryService,
+} from "../application/individual-document-delivery.js";
+import {
+  DocumentMaterializationNotFoundError,
+  DocumentMaterializationProjectionError,
+  DocumentMaterializationRequestValidationError,
+  type PersonalDocumentMaterializationRequestService,
+} from "../application/document-materialization-request.js";
+import {
+  RepositoryAccessDeniedError,
+  RepositoryConflictError,
+} from "../application/foundation-repository.js";
 import type { DjenClient } from "../application/types.js";
+import {
+  RecentAuthenticationRequiredError,
+  type AccountDataControlsService,
+} from "../application/account-data-controls.js";
 import type { AuthenticatedPrincipal } from "../domain/access-control.js";
 import { DjenRateLimitError } from "../infrastructure/djen-client.js";
 import {
@@ -45,6 +79,15 @@ const start = async (
     documentClient?: DocumentClient;
     publicationLocator?: DjenPublicationLocator;
     requestRateLimiter?: RequestRateLimiter;
+    monitoringProfiles?: MonitoringProfilesService;
+    casePortfolio?: PersonalCasePortfolioService;
+    alerts?: PersonalAlertsService;
+    caseTimeline?: PersonalCaseTimelineService;
+    caseDocuments?: PersonalCaseDocumentsService;
+    documentDelivery?: PersonalDocumentDeliveryService;
+    documentMaterializationRequests?:
+      PersonalDocumentMaterializationRequestService;
+    accountDataControls?: AccountDataControlsService;
   },
 ) => {
   const server = createAppServer({ client, ...privateApi });
@@ -79,9 +122,23 @@ const personalCase: CanonicalCase = {
       sourceId: "DJEN",
       official: true,
       collectedAt: "2026-08-29T12:00:00.000Z",
+      officialIdentifier: "internal-source-reference",
     },
   ],
   events: [],
+};
+
+const publicPersonalCase = {
+  caseId: personalCase.caseId,
+  cnjNumber: personalCase.cnjNumber,
+  tribunal: personalCase.tribunal,
+  identityStatus: personalCase.identityStatus,
+  lastUpdatedAt: personalCase.lastUpdatedAt,
+  sources: personalCase.sources.map(({ sourceId, official, collectedAt }) => ({
+    sourceId,
+    official,
+    collectedAt,
+  })),
 };
 
 const emptyClient: DjenClient = {
@@ -105,6 +162,217 @@ const documentReference: DocumentReference = {
 };
 
 describe("HTTP server", () => {
+  it("requests, checks and downloads only the authenticated account export", async () => {
+    const requestId = "20000000-0000-7000-8000-000000000001";
+    const requestedAt = new Date("2026-08-31T12:00:00.000Z");
+    const details = {
+      requestId, requestType: "export" as const, state: "completed" as const,
+      requestedAt, completedAt: requestedAt, artifactSizeBytes: 3,
+      artifactExpiresAt: new Date("2099-09-01T12:00:00.000Z"),
+      artifactObjectId: "private-locator-must-not-leak",
+      artifactSha256: `sha256:${"a".repeat(64)}`,
+    };
+    const controls: AccountDataControlsService = {
+      requestExport: vi.fn().mockResolvedValue({ ...details, state: "pending" }),
+      get: vi.fn().mockResolvedValue(details),
+      download: vi.fn().mockResolvedValue({ bytes: new Uint8Array([123, 125, 10]), fileName: `meu-processo-exportacao-${requestId}.json` }),
+      requestDeletion: vi.fn().mockResolvedValue({ ...details, requestType: "deletion", state: "pending" }),
+    };
+    const origin = await start(emptyClient, {
+      tokenVerifier: { verify: vi.fn().mockResolvedValue({ ...principal, authenticatedAt: new Date() }) },
+      requestRateLimiter: allowingRateLimiter(), accountDataControls: controls,
+    });
+    const headers = { authorization: "Bearer valid-private-token" };
+
+    const created = await fetch(`${origin}/api/v1/account/data-exports`, { method: "POST", headers });
+    const status = await fetch(`${origin}/api/v1/account/data-exports/${requestId}`, { headers });
+    const downloaded = await fetch(`${origin}/api/v1/account/data-exports/${requestId}/download`, { headers });
+    const deleted = await fetch(`${origin}/api/v1/account/deletion-requests`, {
+      method: "POST", headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify({ confirmation: "EXCLUIR MINHA CONTA" }),
+    });
+
+    expect(created.status).toBe(202);
+    expect(status.status).toBe(200);
+    const publicBody = JSON.stringify(await status.json());
+    expect(publicBody).not.toContain("private-locator");
+    expect(publicBody).not.toContain("sha256:");
+    expect(downloaded.headers.get("content-disposition")).toMatch(/^attachment;/);
+    expect(downloaded.headers.get("cache-control")).toBe("private, no-store");
+    expect(new Uint8Array(await downloaded.arrayBuffer())).toEqual(new Uint8Array([123, 125, 10]));
+    expect(deleted.status).toBe(202);
+    expect(controls.requestDeletion).toHaveBeenCalledWith(expect.objectContaining({
+      providerSubject: principal.userId, confirmation: "EXCLUIR MINHA CONTA",
+    }));
+  });
+
+  it("requires recent authentication for account deletion", async () => {
+    const controls = {
+      requestExport: vi.fn(), get: vi.fn(), download: vi.fn(),
+      requestDeletion: vi.fn().mockRejectedValue(new RecentAuthenticationRequiredError()),
+    } satisfies AccountDataControlsService;
+    const origin = await start(emptyClient, {
+      tokenVerifier: { verify: vi.fn().mockResolvedValue(principal) },
+      requestRateLimiter: allowingRateLimiter(), accountDataControls: controls,
+    });
+    const response = await fetch(`${origin}/api/v1/account/deletion-requests`, {
+      method: "POST", headers: { authorization: "Bearer token", "content-type": "application/json" },
+      body: JSON.stringify({ confirmation: "EXCLUIR MINHA CONTA" }),
+    });
+    expect(response.status).toBe(401);
+    expect(await response.json()).toMatchObject({ code: "REAUTHENTICATION_REQUIRED" });
+  });
+  it("creates and lists minimized monitoring profiles for the verified identity", async () => {
+    const subject = {
+      tenantId: "10000000-0000-8000-8000-000000000001",
+      subjectId: "20000000-0000-8000-8000-000000000001",
+      subjectType: "name" as const,
+      displayLabel: "P. S.",
+      status: "active" as const,
+      version: 1,
+      archivedAt: null,
+    };
+    const publicSubject = {
+      subjectId: subject.subjectId,
+      subjectType: subject.subjectType,
+      displayLabel: subject.displayLabel,
+      status: subject.status,
+      version: subject.version,
+      archivedAt: subject.archivedAt,
+    };
+    const monitoringProfiles: MonitoringProfilesService = {
+      create: vi.fn().mockResolvedValue(subject),
+      list: vi.fn().mockResolvedValue({ items: [subject], nextCursor: null }),
+      archive: vi.fn().mockResolvedValue({
+        ...subject,
+        status: "inactive",
+        version: 2,
+        archivedAt: new Date("2026-08-30T12:00:00.000Z"),
+      }),
+    };
+    const origin = await start(emptyClient, {
+      tokenVerifier: { verify: vi.fn().mockResolvedValue(principal) },
+      requestRateLimiter: allowingRateLimiter(),
+      monitoringProfiles,
+    });
+    const headers = {
+      authorization: "Bearer valid-private-token",
+      "content-type": "application/json",
+    };
+
+    const created = await fetch(`${origin}/api/v1/monitoring/subjects`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ type: "name", value: "Pessoa Sintética" }),
+    });
+    const listed = await fetch(
+      `${origin}/api/v1/monitoring/subjects?limit=20`,
+      { headers: { authorization: "Bearer valid-private-token" } },
+    );
+    const archived = await fetch(
+      `${origin}/api/v1/monitoring/subjects/${subject.subjectId}`,
+      {
+        method: "DELETE",
+        headers: {
+          authorization: "Bearer valid-private-token",
+          "if-match": '"1"',
+        },
+      },
+    );
+
+    expect(created.status).toBe(201);
+    expect(created.headers.get("cache-control")).toBe("private, no-store");
+    expect(await created.json()).toEqual({ subject: publicSubject });
+    expect(await listed.json()).toEqual({ items: [publicSubject], nextCursor: null });
+    expect(archived.status).toBe(200);
+    expect(await archived.json()).toMatchObject({
+      subject: { subjectId: subject.subjectId, status: "inactive", version: 2 },
+    });
+    expect(monitoringProfiles.create).toHaveBeenCalledWith("user_alpha", {
+      subjectType: "name",
+      value: "Pessoa Sintética",
+    });
+    expect(monitoringProfiles.list).toHaveBeenCalledWith("user_alpha", {
+      limit: 20,
+    });
+    expect(monitoringProfiles.archive).toHaveBeenCalledWith(
+      "user_alpha",
+      subject.subjectId,
+      1,
+    );
+
+    const invalid = await fetch(`${origin}/api/v1/monitoring/subjects`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ type: "name", value: "Pessoa Sintética", admin: true }),
+    });
+    expect(invalid.status).toBe(400);
+    expect(monitoringProfiles.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails monitoring profile requests closed for auth, availability and invalid input", async () => {
+    const unauthenticatedOrigin = await start(emptyClient, {
+      tokenVerifier: { verify: vi.fn().mockRejectedValue(new Error("invalid")) },
+    });
+    const unauthenticated = await fetch(
+      `${unauthenticatedOrigin}/api/v1/monitoring/subjects`,
+    );
+    expect(unauthenticated.status).toBe(401);
+
+    const unavailableOrigin = await start(emptyClient, {
+      tokenVerifier: { verify: vi.fn().mockResolvedValue(principal) },
+    });
+    const unavailable = await fetch(
+      `${unavailableOrigin}/api/v1/monitoring/subjects`,
+      { headers: { authorization: "Bearer valid-private-token" } },
+    );
+    expect(unavailable.status).toBe(503);
+
+    const monitoringProfiles: MonitoringProfilesService = {
+      create: vi.fn().mockRejectedValue(new RepositoryConflictError()),
+      list: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+      archive: vi.fn().mockRejectedValue(new RepositoryConflictError()),
+    };
+    const origin = await start(emptyClient, {
+      tokenVerifier: { verify: vi.fn().mockResolvedValue(principal) },
+      requestRateLimiter: allowingRateLimiter(),
+      monitoringProfiles,
+    });
+    const auth = { authorization: "Bearer valid-private-token" };
+    const badPage = await fetch(
+      `${origin}/api/v1/monitoring/subjects?limit=0&unknown=true`,
+      { headers: auth },
+    );
+    const unsupported = await fetch(`${origin}/api/v1/monitoring/subjects`, {
+      method: "POST",
+      headers: auth,
+      body: "type=name",
+    });
+    const conflict = await fetch(`${origin}/api/v1/monitoring/subjects`, {
+      method: "POST",
+      headers: { ...auth, "content-type": "application/json" },
+      body: JSON.stringify({ type: "name", value: "Pessoa Sintética" }),
+    });
+    expect(badPage.status).toBe(400);
+    expect(unsupported.status).toBe(415);
+    expect(conflict.status).toBe(409);
+    const invalidArchive = await fetch(
+      `${origin}/api/v1/monitoring/subjects/20000000-0000-8000-8000-000000000001`,
+      { method: "DELETE", headers: auth },
+    );
+    expect(invalidArchive.status).toBe(400);
+
+    const limitedOrigin = await start(emptyClient, {
+      tokenVerifier: { verify: vi.fn().mockResolvedValue(principal) },
+      requestRateLimiter: { allow: vi.fn().mockReturnValue(false) },
+      monitoringProfiles,
+    });
+    const limited = await fetch(
+      `${limitedOrigin}/api/v1/monitoring/subjects`,
+      { headers: auth },
+    );
+    expect(limited.status).toBe(429);
+  });
   it("returns only the server-verified session and active memberships", async () => {
     const verifier = { verify: vi.fn().mockResolvedValue(principal) };
     const origin = await start(emptyClient, { tokenVerifier: verifier });
@@ -211,17 +479,33 @@ describe("HTTP server", () => {
 
   it("allows the loopback Auth emulator in CSP only when local emulation is active", async () => {
     const previous = process.env.FIREBASE_AUTH_EMULATOR_HOST;
+    const previousOrigin = process.env.FIREBASE_AUTH_EMULATOR_BROWSER_ORIGIN;
     process.env.FIREBASE_AUTH_EMULATOR_HOST = "auth-emulator:9099";
+    process.env.FIREBASE_AUTH_EMULATOR_BROWSER_ORIGIN =
+      "http://127.0.0.1:19098";
     try {
       const origin = await start(emptyClient);
       const response = await fetch(`${origin}/health`);
 
       expect(response.headers.get("content-security-policy")).toContain(
-        "http://127.0.0.1:9099",
+        "http://127.0.0.1:19098",
+      );
+
+      process.env.FIREBASE_AUTH_EMULATOR_BROWSER_ORIGIN =
+        "https://attacker.example";
+      const rejectedOrigin = await start(emptyClient);
+      const rejected = await fetch(`${rejectedOrigin}/health`);
+      expect(rejected.headers.get("content-security-policy")).not.toContain(
+        "attacker.example",
       );
     } finally {
       if (previous === undefined) delete process.env.FIREBASE_AUTH_EMULATOR_HOST;
       else process.env.FIREBASE_AUTH_EMULATOR_HOST = previous;
+      if (previousOrigin === undefined) {
+        delete process.env.FIREBASE_AUTH_EMULATOR_BROWSER_ORIGIN;
+      } else {
+        process.env.FIREBASE_AUTH_EMULATOR_BROWSER_ORIGIN = previousOrigin;
+      }
     }
   });
 
@@ -316,6 +600,81 @@ describe("HTTP server", () => {
     expect(repository.list).not.toHaveBeenCalled();
   });
 
+  it("lists and marks tenant alerts read through the authenticated API", async () => {
+    const alert = {
+      alertId: "90000000-0000-7000-8000-000000000801",
+      subjectId: "20000000-0000-7000-8000-000000000801",
+      subjectLabel: "Perfil sintético",
+      tenantCaseId: "85000000-0000-7000-8000-000000000801",
+      caseId: "83000000-0000-7000-8000-000000000801",
+      caseEventId: "86000000-0000-7000-8000-000000000801",
+      cnjNumber: "0000001-23.2026.8.99.0801",
+      tribunal: "TJZZ",
+      alertType: "case_discovered" as const,
+      status: "unread" as const,
+      matchStatus: "unverified" as const,
+      sourceOccurredAt: "2026-08-31T10:00:00.000Z",
+      createdAt: "2026-08-31T10:01:00.000Z",
+      readAt: null,
+    };
+    const alerts: PersonalAlertsService = {
+      list: vi.fn().mockResolvedValue({ items: [alert], nextCursor: "cursor-safe" }),
+      markRead: vi.fn().mockResolvedValue({
+        ...alert,
+        status: "read",
+        readAt: "2026-08-31T11:00:00.000Z",
+      }),
+    };
+    const origin = await start(emptyClient, {
+      tokenVerifier: { verify: vi.fn().mockResolvedValue(principal) },
+      requestRateLimiter: allowingRateLimiter(),
+      alerts,
+    });
+    const headers = { authorization: "Bearer valid-private-token" };
+
+    const listed = await fetch(`${origin}/api/v1/alerts?limit=1&status=unread`, { headers });
+    expect(listed.status).toBe(200);
+    expect(listed.headers.get("cache-control")).toBe("private, no-store");
+    expect(await listed.json()).toEqual({ items: [alert], nextCursor: "cursor-safe" });
+    expect(alerts.list).toHaveBeenCalledWith("user_alpha", {
+      limit: 1,
+      status: "unread",
+    });
+
+    const read = await fetch(`${origin}/api/v1/alerts/${alert.alertId}/read`, {
+      method: "PATCH",
+      headers,
+    });
+    expect(read.status).toBe(200);
+    expect(await read.json()).toMatchObject({ alert: { alertId: alert.alertId, status: "read" } });
+    expect(alerts.markRead).toHaveBeenCalledWith("user_alpha", alert.alertId);
+  });
+
+  it("fails alert access closed for invalid, missing, denied and unavailable requests", async () => {
+    const alerts: PersonalAlertsService = {
+      list: vi.fn().mockRejectedValue(new RepositoryAccessDeniedError()),
+      markRead: vi.fn().mockRejectedValue(new AlertNotFoundError()),
+    };
+    const origin = await start(emptyClient, {
+      tokenVerifier: { verify: vi.fn().mockResolvedValue(principal) },
+      requestRateLimiter: allowingRateLimiter(),
+      alerts,
+    });
+    const headers = { authorization: "Bearer valid-private-token" };
+    expect((await fetch(`${origin}/api/v1/alerts?limit=0`, { headers })).status).toBe(400);
+    expect((await fetch(`${origin}/api/v1/alerts`, { headers })).status).toBe(403);
+    expect((await fetch(
+      `${origin}/api/v1/alerts/90000000-0000-7000-8000-000000000801/read`,
+      { method: "PATCH", headers },
+    )).status).toBe(404);
+
+    const unavailable = await start(emptyClient, {
+      tokenVerifier: { verify: vi.fn().mockResolvedValue(principal) },
+      requestRateLimiter: allowingRateLimiter(),
+    });
+    expect((await fetch(`${unavailable}/api/v1/alerts`, { headers })).status).toBe(503);
+  });
+
   it("lists only cases in the authenticated personal scope", async () => {
     const leakedCase: CanonicalCase = {
       ...personalCase,
@@ -339,13 +698,381 @@ describe("HTTP server", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(await response.json()).toEqual({
-      cases: [personalCase],
+      cases: [publicPersonalCase],
       page: { nextCursor: null },
     });
     expect(verifier.verify).toHaveBeenCalledWith("valid-private-token");
     expect(repository.list).toHaveBeenCalledWith({
       kind: "personal",
       userId: "user_alpha",
+    });
+  });
+
+  it("lists the persisted personal portfolio with validated cursor pagination", async () => {
+    const cursor = "80000000-0000-7000-8000-000000000101";
+    const casePortfolio = {
+      list: vi.fn().mockResolvedValue({
+        cases: [personalCase],
+        nextCursor: cursor,
+      }),
+    } satisfies PersonalCasePortfolioService;
+    const origin = await start(emptyClient, {
+      tokenVerifier: { verify: vi.fn().mockResolvedValue(principal) },
+      casePortfolio,
+    });
+
+    const response = await fetch(
+      `${origin}/api/v1/cases?limit=1&after=70000000-0000-7000-8000-000000000101`,
+      { headers: { authorization: "Bearer valid-private-token" } },
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(await response.json()).toEqual({
+      cases: [publicPersonalCase],
+      page: { nextCursor: cursor },
+    });
+    expect(casePortfolio.list).toHaveBeenCalledWith("user_alpha", {
+      limit: 1,
+      afterCaseId: "70000000-0000-7000-8000-000000000101",
+    });
+
+    for (const query of [
+      "?unknown=1",
+      "?limit=1&limit=2",
+      "?limit=0",
+      "?limit=1.5",
+      "?limit=101",
+      "?after=invalid",
+    ]) {
+      const invalid = await fetch(`${origin}/api/v1/cases${query}`, {
+        headers: { authorization: "Bearer valid-private-token" },
+      });
+      expect(invalid.status).toBe(400);
+      expect(await invalid.json()).toMatchObject({ code: "INVALID_CASE_PAGE" });
+    }
+    expect(casePortfolio.list).toHaveBeenCalledTimes(1);
+  });
+
+  it("lists the persisted case timeline with exact event context", async () => {
+    const caseId = "83000000-0000-7000-8000-000000000901";
+    const event = {
+      eventId: "86000000-0000-7000-8000-000000000901",
+      caseId,
+      eventType: "publication" as const,
+      occurredAt: "2026-08-31T09:00:00.000Z",
+      title: "Intimação publicada",
+      description: "Trecho seguro.",
+      sources: [{ sourceId: "djen", official: true, collectedAt: "2026-08-31T10:00:00.000Z" }],
+    };
+    const caseTimeline: PersonalCaseTimelineService = {
+      list: vi.fn().mockResolvedValue({ items: [event], nextCursor: "timeline-cursor" }),
+    };
+    const origin = await start(emptyClient, {
+      tokenVerifier: { verify: vi.fn().mockResolvedValue(principal) },
+      caseTimeline,
+    });
+    const headers = { authorization: "Bearer valid-private-token" };
+    const response = await fetch(`${origin}/api/v1/cases/${caseId}/events?limit=1`, { headers });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ events: [event], page: { nextCursor: "timeline-cursor" } });
+    expect(caseTimeline.list).toHaveBeenCalledWith("user_alpha", caseId, { limit: 1 });
+
+    expect((await fetch(`${origin}/api/v1/cases/${caseId}/events?limit=0`, { headers })).status).toBe(400);
+    caseTimeline.list = vi.fn().mockRejectedValue(new CaseTimelineNotFoundError());
+    expect((await fetch(`${origin}/api/v1/cases/${caseId}/events`, { headers })).status).toBe(404);
+  });
+
+  it("lists safe persisted document metadata without requiring the legacy portfolio", async () => {
+    const caseId = "83000000-0000-7000-8000-000000000901";
+    const document = {
+      documentId: "88000000-0000-7000-8000-000000000901",
+      caseId,
+      caseEventId: "86000000-0000-7000-8000-000000000901",
+      title: "Intimação para manifestação",
+      documentType: "intimacao",
+      accessClass: "public_official" as const,
+      availabilityStatus: "available" as const,
+      expectedMediaType: "application/pdf" as const,
+      sourceCreatedAt: "2026-08-31T09:00:00.000Z",
+      lastVerifiedAt: "2026-08-31T10:00:00.000Z",
+      source: { sourceId: "djen", official: true },
+      artifact: {
+        artifactId: "89000000-0000-7000-8000-000000000901",
+        mediaType: "application/pdf" as const,
+        sizeBytes: 2048,
+        sha256: `sha256:${"a".repeat(64)}`,
+        expiresAt: "2026-09-01T10:00:00.000Z",
+      },
+    };
+    const caseDocuments: PersonalCaseDocumentsService = {
+      list: vi.fn().mockResolvedValue({ items: [document], nextCursor: "document-cursor" }),
+    };
+    const origin = await start(emptyClient, {
+      tokenVerifier: { verify: vi.fn().mockResolvedValue(principal) },
+      caseDocuments,
+    });
+    const headers = { authorization: "Bearer valid-private-token" };
+    const response = await fetch(
+      `${origin}/api/v1/cases/${caseId}/documents?limit=1`, { headers },
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(await response.json()).toEqual({
+      documents: [document], page: { nextCursor: "document-cursor" },
+    });
+    expect(caseDocuments.list).toHaveBeenCalledWith("user_alpha", caseId, { limit: 1 });
+
+    for (const query of ["?unknown=1", "?limit=1&limit=2", "?limit=0", "?cursor=bad"]) {
+      const invalid = await fetch(`${origin}/api/v1/cases/${caseId}/documents${query}`, { headers });
+      expect(invalid.status).toBe(400);
+      expect(await invalid.json()).toMatchObject({ code: "INVALID_DOCUMENT_PAGE" });
+    }
+    caseDocuments.list = vi.fn().mockRejectedValue(new CaseDocumentsNotFoundError());
+    expect((await fetch(`${origin}/api/v1/cases/${caseId}/documents`, { headers })).status).toBe(404);
+  });
+
+  it("delivers a persisted PDF with renewed personal authorization and private headers", async () => {
+    const caseId = "83000000-0000-7000-8000-000000000901";
+    const documentId = "88000000-0000-7000-8000-000000000901";
+    const bytes = new TextEncoder().encode("%PDF-1.7 persisted fixture");
+    const documentDelivery: PersonalDocumentDeliveryService = {
+      download: vi.fn().mockResolvedValue({
+        bytes,
+        mediaType: "application/pdf",
+        sha256: `sha256:${"a".repeat(64)}`,
+        fileName: "Decisão perigosa\".pdf",
+      }),
+    };
+    const legacyClient: DocumentClient = { download: vi.fn() };
+    const origin = await start(emptyClient, {
+      tokenVerifier: { verify: vi.fn().mockResolvedValue(principal) },
+      caseDocuments: { list: vi.fn() },
+      documentDelivery,
+      documentClient: legacyClient,
+      documentRepository: { list: vi.fn(), findById: vi.fn() },
+    });
+    const response = await fetch(
+      `${origin}/api/v1/cases/${caseId}/documents/${documentId}/content`,
+      { headers: { authorization: "Bearer fresh-token" } },
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("application/pdf");
+    expect(response.headers.get("content-disposition"))
+      .toBe('attachment; filename="Decisao_perigosa_.pdf"');
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("content-security-policy")).toContain("sandbox");
+    expect(documentDelivery.download).toHaveBeenCalledWith(
+      "user_alpha", caseId, documentId,
+    );
+    expect(legacyClient.download).not.toHaveBeenCalled();
+    expect(Array.from(new Uint8Array(await response.arrayBuffer())))
+      .toEqual(Array.from(bytes));
+  });
+
+  it.each([
+    [new PersistedDocumentNotFoundError(), 404, "DOCUMENT_NOT_FOUND"],
+    [new DocumentDownloadQuotaExceededError(), 429, "DOCUMENT_DOWNLOAD_QUOTA_EXCEEDED"],
+    [new DocumentContentUnavailableError(), 502, "DOCUMENT_CONTENT_UNAVAILABLE"],
+  ])("maps persisted delivery failures without private detail", async (error, status, code) => {
+    const caseId = "83000000-0000-7000-8000-000000000901";
+    const documentId = "88000000-0000-7000-8000-000000000901";
+    const origin = await start(emptyClient, {
+      tokenVerifier: { verify: vi.fn().mockResolvedValue(principal) },
+      caseDocuments: { list: vi.fn() },
+      documentDelivery: { download: vi.fn().mockRejectedValue(error) },
+    });
+    const response = await fetch(
+      `${origin}/api/v1/cases/${caseId}/documents/${documentId}/content`,
+      { headers: { authorization: "Bearer fresh-token" } },
+    );
+    expect(response.status).toBe(status);
+    expect(await response.json()).toMatchObject({ code });
+    if (status === 429) expect(response.headers.get("retry-after")).toBe("60");
+  });
+
+  it("rejects extra persisted download input and remains unavailable without an adapter", async () => {
+    const caseId = "83000000-0000-7000-8000-000000000901";
+    const documentId = "88000000-0000-7000-8000-000000000901";
+    const privateApi = {
+      tokenVerifier: { verify: vi.fn().mockResolvedValue(principal) },
+      caseDocuments: { list: vi.fn() },
+    };
+    const origin = await start(emptyClient, privateApi);
+    const headers = { authorization: "Bearer fresh-token" };
+    const unavailable = await fetch(
+      `${origin}/api/v1/cases/${caseId}/documents/${documentId}/content`, { headers },
+    );
+    expect(unavailable.status).toBe(503);
+    expect(await unavailable.json()).toMatchObject({ code: "DOCUMENT_DELIVERY_UNAVAILABLE" });
+
+    const guardedOrigin = await start(emptyClient, {
+      ...privateApi,
+      documentDelivery: { download: vi.fn() },
+    });
+    const invalid = await fetch(
+      `${guardedOrigin}/api/v1/cases/${caseId}/documents/${documentId}/content?path=secret`,
+      { headers },
+    );
+    expect(invalid.status).toBe(404);
+  });
+
+  it("queues an authenticated document materialization with no client-controlled source", async () => {
+    const caseId = "83000000-0000-7000-8000-000000000911";
+    const documentId = "88000000-0000-7000-8000-000000000911";
+    const result = {
+      materializationId: "8c000000-0000-7000-8000-000000000911",
+      documentId,
+      state: "queued" as const,
+    };
+    const documentMaterializationRequests:
+      PersonalDocumentMaterializationRequestService = {
+        request: vi.fn().mockResolvedValue(result),
+      };
+    const requestRateLimiter = allowingRateLimiter();
+    const origin = await start(emptyClient, {
+      tokenVerifier: { verify: vi.fn().mockResolvedValue(principal) },
+      documentMaterializationRequests,
+      requestRateLimiter,
+    });
+    const response = await fetch(
+      `${origin}/api/v1/cases/${caseId}/documents/${documentId}/materializations`,
+      {
+        method: "POST",
+        headers: { authorization: "Bearer fresh-token" },
+      },
+    );
+    expect(response.status).toBe(202);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(await response.json()).toEqual(result);
+    expect(documentMaterializationRequests.request).toHaveBeenCalledWith(
+      "user_alpha", caseId, documentId,
+    );
+    expect(requestRateLimiter.allow).toHaveBeenCalledWith(
+      "document-materialization:user_alpha", 10, 60_000,
+    );
+  });
+
+  it("authenticates, rate limits and fails closed when materialization is unavailable", async () => {
+    const caseId = "83000000-0000-7000-8000-000000000912";
+    const documentId = "88000000-0000-7000-8000-000000000912";
+    const path = `/api/v1/cases/${caseId}/documents/${documentId}/materializations`;
+    const unauthenticated = await start(emptyClient, {
+      tokenVerifier: { verify: vi.fn().mockRejectedValue(new Error("invalid")) },
+      requestRateLimiter: allowingRateLimiter(),
+    });
+    expect((await fetch(`${unauthenticated}${path}`, { method: "POST" })).status)
+      .toBe(401);
+
+    const unavailable = await start(emptyClient, {
+      tokenVerifier: { verify: vi.fn().mockResolvedValue(principal) },
+      requestRateLimiter: allowingRateLimiter(),
+    });
+    const unavailableResponse = await fetch(`${unavailable}${path}`, {
+      method: "POST", headers: { authorization: "Bearer token" },
+    });
+    expect(unavailableResponse.status).toBe(503);
+    expect(await unavailableResponse.json()).toMatchObject({
+      code: "DOCUMENT_MATERIALIZATION_UNAVAILABLE",
+    });
+
+    const deniedLimiter: RequestRateLimiter = { allow: vi.fn().mockReturnValue(false) };
+    const limited = await start(emptyClient, {
+      tokenVerifier: { verify: vi.fn().mockResolvedValue(principal) },
+      requestRateLimiter: deniedLimiter,
+      documentMaterializationRequests: { request: vi.fn() },
+    });
+    expect((await fetch(`${limited}${path}`, {
+      method: "POST", headers: { authorization: "Bearer token" },
+    })).status).toBe(429);
+  });
+
+  it.each([
+    [new DocumentMaterializationRequestValidationError(), 400,
+      "INVALID_DOCUMENT_MATERIALIZATION_REQUEST"],
+    [new DocumentMaterializationNotFoundError(), 404, "DOCUMENT_NOT_FOUND"],
+    [new DocumentMaterializationProjectionError(), 503,
+      "DOCUMENT_MATERIALIZATION_UNAVAILABLE"],
+  ])("maps materialization failures without private detail", async (error, status, code) => {
+    const caseId = "83000000-0000-7000-8000-000000000913";
+    const documentId = "88000000-0000-7000-8000-000000000913";
+    const origin = await start(emptyClient, {
+      tokenVerifier: { verify: vi.fn().mockResolvedValue(principal) },
+      requestRateLimiter: allowingRateLimiter(),
+      documentMaterializationRequests: {
+        request: vi.fn().mockRejectedValue(error),
+      },
+    });
+    const response = await fetch(
+      `${origin}/api/v1/cases/${caseId}/documents/${documentId}/materializations`,
+      { method: "POST", headers: { authorization: "Bearer token" } },
+    );
+    expect(response.status).toBe(status);
+    expect(await response.json()).toMatchObject({ code });
+  });
+
+  it("rejects materialization query, body and professional scope", async () => {
+    const caseId = "83000000-0000-7000-8000-000000000914";
+    const documentId = "88000000-0000-7000-8000-000000000914";
+    const path = `/api/v1/cases/${caseId}/documents/${documentId}/materializations`;
+    const service: PersonalDocumentMaterializationRequestService = {
+      request: vi.fn(),
+    };
+    const origin = await start(emptyClient, {
+      tokenVerifier: { verify: vi.fn().mockResolvedValue(principal) },
+      requestRateLimiter: allowingRateLimiter(),
+      documentMaterializationRequests: service,
+    });
+    const headers = { authorization: "Bearer token" };
+    expect((await fetch(`${origin}${path}?source=external`, {
+      method: "POST", headers,
+    })).status).toBe(400);
+    expect((await fetch(`${origin}${path}`, {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json" },
+      body: "{}",
+    })).status).toBe(400);
+    expect((await fetch(`${origin}${path}`, {
+      method: "POST",
+      headers: { ...headers, "x-organization-id": "org_alpha" },
+    })).status).toBe(503);
+    expect(service.request).not.toHaveBeenCalled();
+  });
+
+  it("fails the persisted portfolio closed for missing professional support and membership", async () => {
+    const deniedPortfolio = {
+      list: vi.fn().mockRejectedValue(new RepositoryAccessDeniedError()),
+    } satisfies PersonalCasePortfolioService;
+    const deniedOrigin = await start(emptyClient, {
+      tokenVerifier: { verify: vi.fn().mockResolvedValue(principal) },
+      casePortfolio: deniedPortfolio,
+    });
+    const denied = await fetch(`${deniedOrigin}/api/v1/cases`, {
+      headers: { authorization: "Bearer valid-private-token" },
+    });
+    expect(denied.status).toBe(403);
+    expect(await denied.json()).toMatchObject({ code: "FORBIDDEN" });
+
+    const organization = await fetch(`${deniedOrigin}/api/v1/cases`, {
+      headers: {
+        authorization: "Bearer valid-private-token",
+        "x-organization-id": "org_alpha",
+      },
+    });
+    expect(organization.status).toBe(503);
+    expect(await organization.json()).toMatchObject({
+      code: "CASE_PORTFOLIO_UNAVAILABLE",
+    });
+
+    const unavailableOrigin = await start(emptyClient, {
+      tokenVerifier: { verify: vi.fn().mockResolvedValue(principal) },
+    });
+    const unavailable = await fetch(`${unavailableOrigin}/api/v1/cases`, {
+      headers: { authorization: "Bearer valid-private-token" },
+    });
+    expect(unavailable.status).toBe(503);
+    expect(await unavailable.json()).toMatchObject({
+      code: "CASE_PORTFOLIO_UNAVAILABLE",
     });
   });
 
@@ -372,7 +1099,10 @@ describe("HTTP server", () => {
     });
     expect(allowed.status).toBe(200);
     expect(await allowed.json()).toEqual({
-      cases: [organizationCase],
+      cases: [{
+        ...publicPersonalCase,
+        caseId: organizationCase.caseId,
+      }],
       page: { nextCursor: null },
     });
 

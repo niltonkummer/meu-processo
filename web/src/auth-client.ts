@@ -8,6 +8,7 @@ export interface AuthUser {
   verificationDelivery?: VerificationDelivery;
   getIdToken(): Promise<string>;
   sendVerification(): Promise<VerificationDelivery>;
+  reauthenticate?(password: string): Promise<void>;
 }
 
 export interface AuthClient {
@@ -19,6 +20,8 @@ export interface AuthClient {
 export interface AuthenticatedWebSession {
   email: string;
   getIdToken(): Promise<string>;
+  reauthenticate?(password: string): Promise<void>;
+  terminate?(): Promise<void>;
 }
 
 export class SafeAuthenticationError extends Error {
