@@ -26,3 +26,7 @@ Current order:
 13. `0013_tenant_lifecycle_worker_projection.sql`
 14. `0014_account_data_controls.sql`
 15. `0015_document_download_window_monotonicity.sql`
+16. `0016_managed_admin_migrator_membership.sql`
+17. `0017_managed_runtime_foundation_grants.sql`
+18. `0018_managed_runtime_operational_grants.sql`
+19. `0019_managed_pgcrypto_schema.sql`

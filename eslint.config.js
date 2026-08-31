@@ -36,4 +36,11 @@ export default tseslint.config(
       "@typescript-eslint/unbound-method": "off"
     },
   },
+  {
+    files: ["database/scripts/**/*.mjs"],
+    extends: [tseslint.configs.disableTypeChecked],
+    languageOptions: {
+      parserOptions: { projectService: false },
+    },
+  },
 );

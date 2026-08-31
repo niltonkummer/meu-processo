@@ -131,7 +131,7 @@ export class PostgresCaseTimelineRepository
         `select set_config('app.current_user_id', $1, true),
                 set_config('app.current_tenant_id', $2, true),
                 set_config('statement_timeout', '5000', true),
-                set_config('lock_timeout', '1000', true),
+                set_config('lock_timeout', '3000', true),
                 set_config('idle_in_transaction_session_timeout', '5000', true)`,
         [context.userId, context.tenantId],
       );
@@ -146,4 +146,3 @@ export class PostgresCaseTimelineRepository
     }
   }
 }
-

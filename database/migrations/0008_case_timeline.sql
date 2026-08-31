@@ -373,7 +373,7 @@ begin
      or p_processed_at > stored_event.leased_until then
     raise exception 'internal alert event conflict' using errcode = '23505';
   end if;
-  expected_hash := public.digest(convert_to(concat_ws(
+  expected_hash := extensions.digest(convert_to(concat_ws(
     E'\x1f', stored_event.event_type, stored_event.aggregate_type,
     stored_event.aggregate_id::text, stored_event.payload::text
   ), 'UTF8'), 'sha256');

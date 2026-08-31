@@ -24,15 +24,45 @@ begin
 end
 $$;
 
-create schema app_private authorization app_migrator;
-create schema app_public authorization app_migrator;
+do $$
+begin
+  if not exists (
+    select 1
+      from pg_auth_members as membership
+      join pg_roles as granted_role
+        on granted_role.oid = membership.roleid
+      join pg_roles as member_role
+        on member_role.oid = membership.member
+     where granted_role.rolname = 'app_migrator'
+       and member_role.rolname = session_user
+       and membership.set_option
+  ) then
+    execute format(
+      'grant app_migrator to %I with set true, inherit false',
+      session_user
+    );
+  end if;
+end
+$$;
+
+do $$
+begin
+  execute format(
+    'grant create on database %I to app_migrator',
+    current_database()
+  );
+end
+$$;
+
+set role app_migrator;
+
+create schema app_private;
+create schema app_public;
 
 revoke all on schema app_private from public;
 revoke all on schema app_public from public;
 grant usage on schema app_private to app_runtime;
 grant usage on schema app_public to app_runtime;
-
-set role app_migrator;
 
 create function app_private.current_user_id()
 returns uuid
@@ -194,8 +224,6 @@ create policy subject_targets_current_tenant on app_private.subject_targets
   using (tenant_id = (select app_private.current_tenant_id()))
   with check (tenant_id = (select app_private.current_tenant_id()));
 
-reset role;
-
 grant execute on function app_private.current_user_id() to app_runtime;
 grant execute on function app_private.current_tenant_id() to app_runtime;
 grant select, insert, update, delete on
@@ -206,5 +234,7 @@ grant select, insert, update, delete on
   app_private.monitoring_targets,
   app_private.subject_targets
 to app_runtime;
+
+reset role;
 
 commit;

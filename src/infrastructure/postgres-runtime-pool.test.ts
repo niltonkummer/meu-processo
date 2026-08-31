@@ -27,7 +27,7 @@ describe("postgres runtime pool policy", () => {
       keepAliveInitialDelayMillis: 10_000,
       statement_timeout: 5_000,
       query_timeout: 6_000,
-      lock_timeout: 1_000,
+      lock_timeout: 3_000,
       idle_in_transaction_session_timeout: 5_000,
     });
   });

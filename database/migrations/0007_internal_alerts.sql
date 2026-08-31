@@ -1,6 +1,8 @@
 begin;
 
-create extension if not exists pgcrypto with schema public;
+create schema if not exists extensions;
+create extension if not exists pgcrypto with schema extensions;
+grant usage on schema extensions to app_migrator;
 
 set role app_migrator;
 
@@ -107,7 +109,7 @@ begin
     raise exception 'internal alert event conflict' using errcode = '23505';
   end if;
 
-  expected_hash := public.digest(
+  expected_hash := extensions.digest(
     convert_to(
       concat_ws(
         E'\x1f', stored_event.event_type, stored_event.aggregate_type,
@@ -408,4 +410,3 @@ grant execute on function app_private.mark_tenant_alert_read(
 reset role;
 
 commit;
-
