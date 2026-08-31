@@ -2,7 +2,7 @@
 
 <!-- infra-cost-assessment:v1 -->
 
-**Status:** em revisão  
+**Status:** aprovado para implementação e rollout de validação
 **Solicitado por:** proprietário do produto  
 **Responsável:** engenharia do Meu Processo  
 **Data da avaliação:** 31 de agosto de 2026  
@@ -12,7 +12,7 @@
 **Custo mensal atual (USD):** até US$ 0,38 já aprovado  
 **Custo mensal esperado (USD):** até US$ 1,47 no total; delta de até US$ 1,09  
 **Custo mensal limite (USD):** US$ 10,00, com interrupção antes do excesso  
-**Aprovação:** pendente de decisão explícita do proprietário do produto
+**Aprovação:** proprietário do produto, aprovado explicitamente em 31/08/2026
 
 ## 1. Decisão proposta
 
@@ -139,12 +139,12 @@ sem limite exige nova avaliação explícita.
 
 ## 8. Aprovação
 
-**Pendente.** Para autorizar a próxima etapa, o proprietário deve aprovar
-explicitamente o total conhecido de até **US$ 1,47/mês**, o delta de até
-**US$ 1,09/mês** e o teto de parada de **US$ 10/mês** para o ambiente de
-validação. A aprovação permitirá alterar/testar o IaC e preparar o plano; o
-`terraform apply` continuará condicionado ao plano sem destruições, aos gates
-verdes e à autorização de rollout registrada no mesmo checkpoint.
+O proprietário do produto aprovou explicitamente em 31/08/2026 o total
+conhecido de até **US$ 1,47/mês**, o delta de até **US$ 1,09/mês** e o teto de
+parada de **US$ 10/mês** para o ambiente de validação. A aprovação libera a
+alteração e os testes do IaC, o plano revisado e o rollout de validação. O
+`terraform apply` permanece condicionado a plano sem destruições, gates verdes
+e registro de evidência no mesmo checkpoint.
 
 ## 9. Verificação posterior
 
