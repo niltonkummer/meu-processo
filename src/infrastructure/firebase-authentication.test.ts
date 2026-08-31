@@ -35,6 +35,7 @@ describe("FirebaseIdentityTokenDecoder", () => {
         uid: "firebase_user",
         email: "pessoa@example.test",
         email_verified: true,
+        auth_time: 1788177600,
         organizationId: "untrusted_client_claim",
       }),
     };
@@ -44,6 +45,7 @@ describe("FirebaseIdentityTokenDecoder", () => {
       userId: "firebase_user",
       email: "pessoa@example.test",
       emailVerified: true,
+      authenticatedAt: new Date("2026-08-31T12:00:00.000Z"),
     });
     expect(client.verifyIdToken).toHaveBeenCalledWith("signed-token", true);
   });
@@ -52,6 +54,9 @@ describe("FirebaseIdentityTokenDecoder", () => {
     {},
     { uid: "firebase_user" },
     { uid: "firebase_user", email: "pessoa@example.test" },
+    { uid: "firebase_user", email: "pessoa@example.test", email_verified: true },
+    { uid: "firebase_user", email: "pessoa@example.test", email_verified: true, auth_time: -1 },
+    { uid: "firebase_user", email: "pessoa@example.test", email_verified: true, auth_time: 1.5 },
   ])("rejects incomplete Firebase claims", async (claims) => {
     const decoder = new FirebaseIdentityTokenDecoder({
       verifyIdToken: vi.fn().mockResolvedValue(claims),

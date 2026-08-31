@@ -40,12 +40,16 @@ RUN npm prune --omit=dev --ignore-scripts
 
 FROM gcr.io/distroless/nodejs24-debian13:nonroot@sha256:774b7d020b24214835769e24c3544835526cd0288f0b094eae48e8b2c2429a79 AS production
 ENV NODE_ENV=production \
+    NODE_EXTRA_CA_CERTS=/app/config/certificates/supabase-prod-ca-2021.crt \
     PORT=8080
 WORKDIR /app
 
 COPY --from=production-dependencies --chown=65532:65532 /app/package.json ./package.json
 COPY --from=production-dependencies --chown=65532:65532 /app/node_modules ./node_modules
 COPY --from=build --chown=65532:65532 /app/dist ./dist
+COPY --from=build --chown=65532:65532 \
+  /app/config/certificates/supabase-prod-ca-2021.crt \
+  ./config/certificates/supabase-prod-ca-2021.crt
 
 USER 65532:65532
 EXPOSE 8080

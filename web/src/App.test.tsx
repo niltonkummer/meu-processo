@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -80,6 +80,43 @@ const sessionResponse = () =>
     { status: 200, headers: { "content-type": "application/json" } },
   );
 
+const monitoringSubject = {
+  subjectId: "20000000-0000-8000-8000-000000000001",
+  subjectType: "name",
+  displayLabel: "P. E.",
+  status: "active",
+  version: 1,
+  archivedAt: null,
+};
+
+const monitoringResponse = (url: string): Response | undefined => {
+  if (url === "/api/v1/cases?limit=20") {
+    return new Response(JSON.stringify({ cases: [], page: { nextCursor: null } }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }
+  if (url === "/api/v1/alerts?limit=20&status=all") {
+    return new Response(JSON.stringify({ items: [], nextCursor: null }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }
+  if (url === "/api/v1/monitoring/subjects?limit=100") {
+    return new Response(JSON.stringify({ items: [], nextCursor: null }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }
+  if (url === "/api/v1/monitoring/subjects") {
+    return new Response(JSON.stringify({ subject: monitoringSubject }), {
+      status: 201,
+      headers: { "content-type": "application/json" },
+    });
+  }
+  return undefined;
+};
+
 const requestUrl = (input: RequestInfo | URL): string =>
   typeof input === "string"
     ? input
@@ -87,30 +124,46 @@ const requestUrl = (input: RequestInfo | URL): string =>
       ? input.href
       : input.url;
 
+const createAppFetcher = (
+  searchBody: unknown = responseBody,
+  searchStatus = 200,
+) =>
+  vi.fn<typeof fetch>().mockImplementation((input) => {
+    const url = requestUrl(input);
+    if (url === "/api/v1/session") return Promise.resolve(sessionResponse());
+    const monitoring = monitoringResponse(url);
+    if (monitoring) return Promise.resolve(monitoring);
+    if (url === "/api/v1/searches") {
+      return Promise.resolve(
+        new Response(JSON.stringify(searchBody), {
+          status: searchStatus,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    }
+    return Promise.reject(new Error(`unexpected URL: ${url}`));
+  });
+
 const signIn = async (user: ReturnType<typeof userEvent.setup>) => {
   await user.click(screen.getByRole("button", { name: "Entrar" }));
   await user.type(screen.getByLabelText("E-mail"), "pessoa@example.test");
   await user.type(screen.getByLabelText("Senha"), "uma-senha-segura");
   await user.click(screen.getByRole("button", { name: "Acessar minha conta" }));
   expect(await screen.findByText("pessoa@example.test")).toBeVisible();
+  await waitFor(() =>
+    expect(
+      screen.getByRole("button", { name: "Cadastrar e buscar" }),
+    ).toBeEnabled(),
+  );
 };
 
 describe("App", () => {
   beforeEach(() => storage.clear());
   afterEach(cleanup);
 
-  it("registers a name locally and renders grouped official results", async () => {
+  it("registers a protected profile and renders grouped official results", async () => {
     const user = userEvent.setup();
-    const fetcher = vi.fn<typeof fetch>().mockImplementation((input) =>
-      Promise.resolve(
-        requestUrl(input) === "/api/v1/session"
-          ? sessionResponse()
-          : new Response(JSON.stringify(responseBody), {
-              status: 200,
-              headers: { "content-type": "application/json" },
-            }),
-      ),
-    );
+    const fetcher = createAppFetcher();
     render(
       <App
         fetcher={fetcher}
@@ -124,6 +177,13 @@ describe("App", () => {
     await user.type(screen.getByLabelText("Nome completo"), "Pessoa Exemplo");
     await user.click(screen.getByRole("button", { name: "Cadastrar e buscar" }));
 
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/v1/monitoring/subjects",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ type: "name", value: "Pessoa Exemplo" }),
+      }),
+    );
     expect(fetcher).toHaveBeenCalledWith(
       "/api/v1/searches",
       expect.objectContaining({
@@ -142,7 +202,9 @@ describe("App", () => {
     expect(screen.getByText("Despacho")).toBeVisible();
     expect(screen.getByText("Comunicação 98765")).toBeVisible();
     expect(screen.getByText(/homônimos/i)).toBeVisible();
-    expect(screen.getAllByText("Pessoa Exemplo")).toHaveLength(2);
+    expect(screen.getByText("P. E.")).toBeVisible();
+    expect(screen.getAllByText("Pessoa Exemplo")).toHaveLength(1);
+    expect(storage.length).toBe(0);
   });
 
   it("keeps the experimental document-search limitation visible", async () => {
@@ -160,21 +222,128 @@ describe("App", () => {
     expect(screen.getByLabelText("CPF")).toBeChecked();
   });
 
+  it("loads account profiles and archives them without browser persistence", async () => {
+    const user = userEvent.setup();
+    const fetcher = vi.fn<typeof fetch>().mockImplementation((input, init) => {
+      const url = requestUrl(input);
+      if (url === "/api/v1/session") return Promise.resolve(sessionResponse());
+      if (url === "/api/v1/cases?limit=20") {
+        return Promise.resolve(new Response(
+          JSON.stringify({ cases: [], page: { nextCursor: null } }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ));
+      }
+      if (url === "/api/v1/alerts?limit=20&status=all") {
+        return Promise.resolve(
+          new Response(JSON.stringify({ items: [], nextCursor: null }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        );
+      }
+      if (url === "/api/v1/monitoring/subjects?limit=100") {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ items: [monitoringSubject], nextCursor: null }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+        );
+      }
+      if (
+        url ===
+          `/api/v1/monitoring/subjects/${monitoringSubject.subjectId}` &&
+        init?.method === "DELETE"
+      ) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              subject: {
+                ...monitoringSubject,
+                status: "inactive",
+                version: 2,
+                archivedAt: "2026-08-30T12:00:00.000Z",
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+        );
+      }
+      return Promise.reject(new Error(`unexpected URL: ${url}`));
+    });
+    storage.setItem(
+      "meu-processo.targets.v1",
+      JSON.stringify([{ value: "Pessoa Exemplo" }]),
+    );
+    render(
+      <App
+        fetcher={fetcher}
+        storage={storage}
+        loadAuthClient={vi.fn().mockResolvedValue(authClient())}
+      />,
+    );
+
+    await signIn(user);
+    expect(await screen.findByText("P. E.")).toBeVisible();
+    expect(storage.getItem("meu-processo.targets.v1")).toBeNull();
+
+    await user.click(
+      screen.getByRole("button", { name: "Arquivar perfil P. E." }),
+    );
+
+    await waitFor(() => expect(screen.queryByText("P. E.")).not.toBeInTheDocument());
+    expect(fetcher).toHaveBeenCalledWith(
+      `/api/v1/monitoring/subjects/${monitoringSubject.subjectId}`,
+      {
+        method: "DELETE",
+        headers: {
+          authorization: "Bearer firebase-id-token",
+          "if-match": '"1"',
+        },
+      },
+    );
+    expect(storage.length).toBe(0);
+  });
+
   it("shows a safe API error and does not save a failed target", async () => {
     const user = userEvent.setup();
-    const fetcher = vi.fn<typeof fetch>().mockImplementation((input) =>
-      Promise.resolve(
-        requestUrl(input) === "/api/v1/session"
-          ? sessionResponse()
-          : new Response(
-              JSON.stringify({
-                code: "INVALID_TARGET",
-                message: "Informe um nome completo.",
-              }),
-              { status: 400, headers: { "content-type": "application/json" } },
-            ),
-      ),
-    );
+    const fetcher = vi.fn<typeof fetch>().mockImplementation((input) => {
+      const url = requestUrl(input);
+      if (url === "/api/v1/session") return Promise.resolve(sessionResponse());
+      if (url === "/api/v1/cases?limit=20") {
+        return Promise.resolve(new Response(
+          JSON.stringify({ cases: [], page: { nextCursor: null } }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ));
+      }
+      if (url === "/api/v1/alerts?limit=20&status=all") {
+        return Promise.resolve(
+          new Response(JSON.stringify({ items: [], nextCursor: null }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        );
+      }
+      if (url === "/api/v1/monitoring/subjects?limit=100") {
+        return Promise.resolve(
+          new Response(JSON.stringify({ items: [], nextCursor: null }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        );
+      }
+      if (url === "/api/v1/monitoring/subjects") {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              code: "INVALID_MONITORING_PROFILE",
+              message: "Informe um nome completo.",
+            }),
+            { status: 400, headers: { "content-type": "application/json" } },
+          ),
+        );
+      }
+      return Promise.reject(new Error(`unexpected URL: ${url}`));
+    });
     render(
       <App
         fetcher={fetcher}
@@ -191,21 +360,15 @@ describe("App", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Informe um nome completo.",
     );
+    expect(
+      fetcher.mock.calls.some(([input]) => requestUrl(input) === "/api/v1/searches"),
+    ).toBe(false);
     expect(storage.length).toBe(0);
   });
 
   it("shows identical case facts in simple and advanced modes without refetching", async () => {
     const user = userEvent.setup();
-    const fetcher = vi.fn<typeof fetch>().mockImplementation((input) =>
-      Promise.resolve(
-        requestUrl(input) === "/api/v1/session"
-          ? sessionResponse()
-          : new Response(JSON.stringify(responseBody), {
-              status: 200,
-              headers: { "content-type": "application/json" },
-            }),
-      ),
-    );
+    const fetcher = createAppFetcher();
     render(
       <App
         fetcher={fetcher}
@@ -222,7 +385,7 @@ describe("App", () => {
 
     await user.click(screen.getByRole("button", { name: "Modo avançado" }));
 
-    expect(screen.getByRole("heading", { name: "Carteira avançada" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Resultado técnico da consulta atual" })).toBeVisible();
     expect(screen.getByRole("cell", { name: "0000001-23.2026.8.99.0001" })).toBeVisible();
     expect(screen.getByRole("cell", { name: "TJEX" })).toBeVisible();
     expect(screen.getByRole("cell", { name: "2" })).toBeVisible();
@@ -247,12 +410,92 @@ describe("App", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
+  it("mounts persisted activity after login and removes it immediately on logout", async () => {
+    const user = userEvent.setup();
+    const persistedAlert = {
+      alertId: "90000000-0000-7000-8000-000000000801",
+      subjectId: "20000000-0000-7000-8000-000000000801",
+      subjectLabel: "P. E.",
+      tenantCaseId: "85000000-0000-7000-8000-000000000801",
+      caseId: "83000000-0000-7000-8000-000000000801",
+      caseEventId: "86000000-0000-7000-8000-000000000801",
+      cnjNumber: "0000001-23.2026.8.99.0801",
+      tribunal: "TJZZ",
+      alertType: "case_discovered",
+      status: "unread",
+      matchStatus: "unverified",
+      sourceOccurredAt: "2026-08-31T10:00:00.000Z",
+      createdAt: "2026-08-31T10:01:00.000Z",
+      readAt: null,
+    };
+    const fetcher = vi.fn<typeof fetch>().mockImplementation((input) => {
+      const url = requestUrl(input);
+      if (url === "/api/v1/session") return Promise.resolve(sessionResponse());
+      if (url === "/api/v1/cases?limit=20") {
+        return Promise.resolve(new Response(
+          JSON.stringify({ cases: [{
+            caseId: persistedAlert.caseId,
+            cnjNumber: persistedAlert.cnjNumber,
+            tribunal: persistedAlert.tribunal,
+            identityStatus: "confirmed",
+            lastUpdatedAt: persistedAlert.createdAt,
+            sources: [{
+              sourceId: "djen",
+              official: true,
+              collectedAt: persistedAlert.createdAt,
+            }],
+          }], page: { nextCursor: null } }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ));
+      }
+      if (url === "/api/v1/monitoring/subjects?limit=100") {
+        return Promise.resolve(new Response(
+          JSON.stringify({ items: [], nextCursor: null }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ));
+      }
+      if (url === "/api/v1/alerts?limit=20&status=all") {
+        return Promise.resolve(new Response(
+          JSON.stringify({ items: [persistedAlert], nextCursor: null }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ));
+      }
+      return Promise.reject(new Error(`unexpected URL: ${url}`));
+    });
+    render(
+      <App
+        fetcher={fetcher}
+        storage={storage}
+        loadAuthClient={vi.fn().mockResolvedValue(authClient())}
+      />,
+    );
+
+    await signIn(user);
+    expect(await screen.findByRole("heading", { name: "Acompanhamento" })).toBeVisible();
+    expect(screen.getAllByText(persistedAlert.cnjNumber)).toHaveLength(2);
+
+    await user.click(screen.getByRole("button", { name: "Modo avançado" }));
+    expect(screen.getByText(persistedAlert.caseEventId)).toBeVisible();
+    expect(fetcher.mock.calls.filter(
+      ([input]) => requestUrl(input) === "/api/v1/alerts?limit=20&status=all",
+    )).toHaveLength(1);
+
+    await user.click(screen.getByRole("button", { name: "Sair" }));
+    await waitFor(() => expect(
+      screen.queryByRole("heading", { name: "Acompanhamento" }),
+    ).not.toBeInTheDocument());
+    expect(screen.queryByText(persistedAlert.cnjNumber)).not.toBeInTheDocument();
+    expect(storage.length).toBe(0);
+  });
+
   it("opens a process and downloads its publication through the authenticated proxy", async () => {
     const user = userEvent.setup();
     const saveFile = vi.fn();
     const fetcher = vi.fn<typeof fetch>().mockImplementation((input) => {
       const url = requestUrl(input);
       if (url === "/api/v1/session") return Promise.resolve(sessionResponse());
+      const monitoring = monitoringResponse(url);
+      if (monitoring) return Promise.resolve(monitoring);
       if (url === "/api/v1/searches") {
         return Promise.resolve(
           new Response(JSON.stringify(responseBody), {
@@ -315,6 +558,8 @@ describe("App", () => {
     const fetcher = vi.fn<typeof fetch>().mockImplementation((input) => {
       const url = requestUrl(input);
       if (url === "/api/v1/session") return Promise.resolve(sessionResponse());
+      const monitoring = monitoringResponse(url);
+      if (monitoring) return Promise.resolve(monitoring);
       if (url === "/api/v1/searches") {
         return Promise.resolve(
           new Response(JSON.stringify(responseBody), {
@@ -384,6 +629,8 @@ describe("App", () => {
     const fetcher = vi.fn<typeof fetch>().mockImplementation((input) => {
       const url = requestUrl(input);
       if (url === "/api/v1/session") return Promise.resolve(sessionResponse());
+      const monitoring = monitoringResponse(url);
+      if (monitoring) return Promise.resolve(monitoring);
       if (url === "/api/v1/searches") {
         return Promise.resolve(
           new Response(JSON.stringify(responseBody), {

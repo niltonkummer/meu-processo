@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { loadTargets, saveTarget } from "./target-storage";
+import { clearLegacyTargets } from "./target-storage";
 
 class MemoryStorage implements Storage {
   readonly values = new Map<string, string>();
@@ -31,54 +31,27 @@ class MemoryStorage implements Storage {
 }
 
 describe("target storage", () => {
-  it("returns an empty list for absent or malformed local data", () => {
-    const storage = new MemoryStorage();
-    expect(loadTargets(storage)).toEqual([]);
-
-    storage.setItem("meu-processo.targets.v1", "not json");
-    expect(loadTargets(storage)).toEqual([]);
-
-    storage.setItem("meu-processo.targets.v1", JSON.stringify({ nope: true }));
-    expect(loadTargets(storage)).toEqual([]);
-  });
-
-  it("stores targets locally and replaces the same deterministic id", () => {
-    const storage = new MemoryStorage();
-    const original = {
-      id: "name_abc",
-      type: "name" as const,
-      value: "Pessoa Exemplo",
-      displayValue: "Pessoa Exemplo",
-    };
-
-    saveTarget(storage, original);
-    saveTarget(storage, { ...original, value: "Pessoa Exemplo Atualizada" });
-
-    expect(loadTargets(storage)).toEqual([
-      { ...original, value: "Pessoa Exemplo Atualizada" },
-    ]);
-  });
-
-  it("ignores invalid entries without discarding valid local targets", () => {
+  it("removes the legacy payload that may contain name, CPF or CNPJ", () => {
     const storage = new MemoryStorage();
     storage.setItem(
       "meu-processo.targets.v1",
-      JSON.stringify([
-        {
-          id: "cpf_abc",
-          type: "cpf",
-          value: "123.456.789-09",
-          displayValue: "***.***.***-09",
-        },
-        { id: 12, type: "name" },
-        null,
-        "invalid",
-        { id: "x", type: "email", value: "x", displayValue: "x" },
-        { id: "x", type: "name", value: 12, displayValue: "x" },
-        { id: "x", type: "name", value: "x", displayValue: 12 },
-      ]),
+      JSON.stringify([{ type: "cpf", value: "123.456.789-09" }]),
     );
+    storage.setItem("unrelated.preference", "keep");
 
-    expect(loadTargets(storage)).toHaveLength(1);
+    clearLegacyTargets(storage);
+
+    expect(storage.getItem("meu-processo.targets.v1")).toBeNull();
+    expect(storage.getItem("unrelated.preference")).toBe("keep");
+  });
+
+  it("is safe when storage is absent, blocked or already clean", () => {
+    const storage = new MemoryStorage();
+    expect(() => clearLegacyTargets(storage)).not.toThrow();
+
+    vi.spyOn(storage, "removeItem").mockImplementation(() => {
+      throw new DOMException("blocked");
+    });
+    expect(() => clearLegacyTargets(storage)).not.toThrow();
   });
 });

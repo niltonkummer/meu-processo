@@ -1,7 +1,12 @@
 # ADR 0001 — Validar o DJEN antes de persistir dados pessoais
 
-Status: aceito
+Status: concluído para a validação inicial; armazenamento no navegador
+substituído pela [ADR 0019](./0019-tenant-bound-identifier-protection.md)
 Data: 2026-08-29
+
+> Nota histórica: a decisão abaixo descreve a primeira validação. Desde
+> 30/08/2026, perfis são persistidos cifrados por tenant e o payload local legado
+> é removido pelo painel.
 
 ## Contexto
 
@@ -19,10 +24,12 @@ Nome usará `nomeParte`. CPF/CNPJ usarão busca literal no campo `texto`, em dua
 - Reiniciar ou trocar de navegador perde a lista local de alvos.
 - Não há monitoramento agendado nem histórico.
 - O resultado por CPF/CNPJ pode ser vazio mesmo quando existirem processos.
-- A próxima etapa de persistência exigirá autenticação implementada, regras de isolamento testadas e Firestore provisionado por Terraform.
+- A próxima etapa de persistência exigirá autenticação implementada, regras de
+  isolamento testadas e Supabase PostgreSQL aprovado conforme ADR 0016.
 
 ## Alternativas consideradas
 
-- **Persistir imediatamente no Firestore:** rejeitada nesta etapa por aumentar o risco antes de validar a fonte.
+- **Persistir imediatamente em banco:** rejeitada nesta etapa por aumentar o
+  risco antes de validar a fonte.
 - **Varredura integral e índice próprio:** rejeitada por custo, restrições operacionais, privacidade e ausência de uma fonte aberta nacional que permita busca completa por documento.
 - **DataJud como base comercial:** rejeitada porque as condições atuais limitam o uso a finalidades não comerciais.

@@ -98,3 +98,42 @@ variable "additional_auth_domains" {
     error_message = "additional_auth_domains must contain exact DNS hostnames without scheme, port, wildcard, or path."
   }
 }
+
+variable "managed_foundation_enabled" {
+  description = "Include the passive managed-product foundation in plans or in an explicitly approved validation rollout."
+  type        = bool
+  default     = false
+}
+
+variable "managed_foundation_acknowledgement" {
+  description = "Exact reviewed gate for the passive foundation: plan-only, or cost assessment 0040 restricted to validation."
+  type        = string
+  default     = ""
+
+  validation {
+    condition = (
+      !var.managed_foundation_enabled ||
+      var.managed_foundation_acknowledgement == "PLAN_ONLY_NO_APPLY" ||
+      (
+        var.environment == "validation" &&
+        var.managed_foundation_acknowledgement == "APPROVED_VALIDATION_ROLLOUT_0040"
+      )
+    )
+    error_message = "managed_foundation_enabled requires PLAN_ONLY_NO_APPLY, or APPROVED_VALIDATION_ROLLOUT_0040 in validation only."
+  }
+}
+
+variable "process_object_bucket_name" {
+  description = "Optional globally unique GCS bucket name. When null, Terraform derives a validation name from project and environment."
+  type        = string
+  default     = null
+  nullable    = true
+
+  validation {
+    condition = (
+      var.process_object_bucket_name == null ||
+      can(regex("^[a-z0-9][a-z0-9._-]{1,61}[a-z0-9]$", var.process_object_bucket_name))
+    )
+    error_message = "process_object_bucket_name must be a valid 3-63 character GCS bucket name."
+  }
+}

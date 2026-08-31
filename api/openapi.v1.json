@@ -1,0 +1,609 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Meu Processo API",
+    "version": "1.0.0",
+    "description": "Contrato HTTP privado e autenticado da API v1 do Meu Processo."
+  },
+  "paths": {
+    "/api/v1/session": {
+      "get": {
+        "operationId": "getSession",
+        "summary": "Retorna a identidade verificada no servidor",
+        "tags": ["Identity"],
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Sessão verificada", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SessionResponse" } } } },
+          "401": { "description": "Autenticação necessária", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "description": "Erro interno seguro", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/searches": {
+      "post": {
+        "operationId": "searchProcesses",
+        "summary": "Consulta uma fonte oficial por alvo controlado",
+        "tags": ["Search"],
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SearchRequest" } } } },
+        "responses": {
+          "200": { "description": "Resultados normalizados e agrupados", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SearchResponse" } } } },
+          "400": { "description": "Alvo ou JSON inválido", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "401": { "description": "Autenticação necessária", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "415": { "description": "Media type não suportado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "429": { "description": "Limite local ou da fonte atingido", "headers": { "Retry-After": { "schema": { "type": "integer", "minimum": 1 } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "502": { "description": "Fonte oficial indisponível", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "503": { "description": "Busca não configurada", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "description": "Erro interno seguro", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/monitoring/subjects": {
+      "get": {
+        "operationId": "listMonitoringSubjects",
+        "summary": "Lista perfis monitorados minimizados",
+        "tags": ["Monitoring"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 } },
+          { "name": "after", "in": "query", "required": false, "schema": { "$ref": "#/components/schemas/Uuid" } },
+          { "name": "includeInactive", "in": "query", "required": false, "schema": { "type": "boolean", "default": false } }
+        ],
+        "responses": {
+          "200": { "description": "Página de perfis", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MonitoringSubjectList" } } } },
+          "400": { "description": "Paginação inválida", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "401": { "description": "Autenticação necessária", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "429": { "description": "Limite temporário", "headers": { "Retry-After": { "schema": { "type": "integer", "minimum": 1 } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "503": { "description": "Cadastro não configurado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "description": "Erro interno seguro", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      },
+      "post": {
+        "operationId": "createMonitoringSubject",
+        "summary": "Cadastra um perfil monitorado",
+        "tags": ["Monitoring"],
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateMonitoringSubjectRequest" } } } },
+        "responses": {
+          "201": { "description": "Perfil criado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MonitoringSubjectResponse" } } } },
+          "400": { "description": "Perfil ou JSON inválido", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "401": { "description": "Autenticação necessária", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "409": { "description": "Perfil existente ou versão conflitante", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "415": { "description": "Media type não suportado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "429": { "description": "Limite temporário", "headers": { "Retry-After": { "schema": { "type": "integer", "minimum": 1 } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "503": { "description": "Cadastro não configurado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "description": "Erro interno seguro", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/monitoring/subjects/{subjectId}": {
+      "delete": {
+        "operationId": "archiveMonitoringSubject",
+        "summary": "Arquiva um perfil monitorado com controle de versão",
+        "tags": ["Monitoring"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "subjectId", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Uuid" } },
+          { "name": "If-Match", "in": "header", "required": true, "schema": { "type": "string", "pattern": "^\"[1-9][0-9]*\"$" } }
+        ],
+        "responses": {
+          "200": { "description": "Perfil arquivado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MonitoringSubjectResponse" } } } },
+          "400": { "description": "Identificador, parâmetros ou versão inválida", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "401": { "description": "Autenticação necessária", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "409": { "description": "Versão conflitante", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "429": { "description": "Limite temporário", "headers": { "Retry-After": { "schema": { "type": "integer", "minimum": 1 } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "503": { "description": "Cadastro não configurado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "description": "Erro interno seguro", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/alerts": {
+      "get": {
+        "operationId": "listAlerts",
+        "summary": "Lista alertas privados do tenant pessoal",
+        "tags": ["Alerts"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 } },
+          { "name": "status", "in": "query", "required": false, "schema": { "type": "string", "enum": ["all", "unread", "read"], "default": "all" } },
+          { "name": "cursor", "in": "query", "required": false, "schema": { "$ref": "#/components/schemas/Cursor" } }
+        ],
+        "responses": {
+          "200": { "description": "Página de alertas", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AlertList" } } } },
+          "400": { "description": "Paginação inválida", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "401": { "description": "Autenticação necessária", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Acesso negado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "429": { "description": "Limite temporário", "headers": { "Retry-After": { "schema": { "type": "integer", "minimum": 1 } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "503": { "description": "Alertas não configurados", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "description": "Erro interno seguro", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/alerts/{alertId}/read": {
+      "patch": {
+        "operationId": "markAlertRead",
+        "summary": "Marca um alerta privado como lido",
+        "tags": ["Alerts"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "alertId", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Uuid" } }
+        ],
+        "responses": {
+          "200": { "description": "Alerta atualizado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AlertResponse" } } } },
+          "400": { "description": "Identificador ou query inválida", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "401": { "description": "Autenticação necessária", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Acesso negado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Alerta não encontrado sem enumeração", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "429": { "description": "Limite temporário", "headers": { "Retry-After": { "schema": { "type": "integer", "minimum": 1 } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "503": { "description": "Alertas não configurados", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "description": "Erro interno seguro", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/cases": {
+      "get": {
+        "operationId": "listCases",
+        "summary": "Lista a carteira processual autorizada",
+        "tags": ["Cases"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 } },
+          { "name": "after", "in": "query", "required": false, "schema": { "$ref": "#/components/schemas/Uuid" } },
+          { "name": "X-Organization-Id", "in": "header", "required": false, "schema": { "type": "string", "minLength": 1, "maxLength": 256 } },
+          { "name": "X-Correlation-Id", "in": "header", "required": false, "schema": { "type": "string", "minLength": 1, "maxLength": 256 } }
+        ],
+        "responses": {
+          "200": { "description": "Página de processos", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CaseList" } } } },
+          "400": { "description": "Paginação inválida", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "401": { "description": "Autenticação necessária", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Escopo negado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "503": { "description": "Carteira não configurada", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "description": "Erro interno seguro", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/cases/{caseId}": {
+      "get": {
+        "operationId": "getCase",
+        "summary": "Retorna o processo autorizado",
+        "tags": ["Cases"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "caseId", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/OpaqueId" } },
+          { "name": "X-Organization-Id", "in": "header", "required": false, "schema": { "type": "string", "minLength": 1, "maxLength": 256 } },
+          { "name": "X-Correlation-Id", "in": "header", "required": false, "schema": { "type": "string", "minLength": 1, "maxLength": 256 } }
+        ],
+        "responses": {
+          "200": { "description": "Detalhe autorizado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CaseResponse" } } } },
+          "401": { "description": "Autenticação necessária", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Escopo negado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Processo não encontrado sem enumeração", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "503": { "description": "Detalhe não configurado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "description": "Erro interno seguro", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/cases/{caseId}/events": {
+      "get": {
+        "operationId": "listCaseEvents",
+        "summary": "Lista a linha do tempo autorizada do processo",
+        "tags": ["Cases"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "caseId", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/OpaqueId" } },
+          { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 } },
+          { "name": "cursor", "in": "query", "required": false, "schema": { "$ref": "#/components/schemas/Cursor" } },
+          { "name": "X-Organization-Id", "in": "header", "required": false, "schema": { "type": "string", "minLength": 1, "maxLength": 256 } }
+        ],
+        "responses": {
+          "200": { "description": "Página da linha do tempo", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CaseEventList" } } } },
+          "400": { "description": "Paginação inválida", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "401": { "description": "Autenticação necessária", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Escopo negado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Processo não encontrado sem enumeração", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "503": { "description": "Linha do tempo não configurada", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "description": "Erro interno seguro", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/cases/{caseId}/documents": {
+      "get": {
+        "operationId": "listCaseDocuments",
+        "summary": "Lista documentos autorizados do processo",
+        "tags": ["Documents"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "caseId", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/OpaqueId" } },
+          { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 } },
+          { "name": "cursor", "in": "query", "required": false, "schema": { "$ref": "#/components/schemas/Cursor" } },
+          { "name": "X-Organization-Id", "in": "header", "required": false, "schema": { "type": "string", "minLength": 1, "maxLength": 256 } }
+        ],
+        "responses": {
+          "200": { "description": "Página de documentos", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DocumentList" } } } },
+          "400": { "description": "Paginação inválida", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "401": { "description": "Autenticação necessária", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Escopo negado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Processo ou documento não encontrado sem enumeração", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "503": { "description": "Catálogo não configurado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "description": "Erro interno seguro", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/cases/{caseId}/documents/{documentId}/content": {
+      "get": {
+        "operationId": "downloadCaseDocument",
+        "summary": "Entrega um PDF autorizado como attachment privado",
+        "tags": ["Documents"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "caseId", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/OpaqueId" } },
+          { "name": "documentId", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/OpaqueId" } },
+          { "name": "X-Organization-Id", "in": "header", "required": false, "schema": { "type": "string", "minLength": 1, "maxLength": 256 } }
+        ],
+        "responses": {
+          "200": { "description": "PDF privado", "headers": { "Content-Disposition": { "schema": { "type": "string", "pattern": "^attachment;" } }, "X-Document-Sha256": { "schema": { "$ref": "#/components/schemas/Sha256" } }, "Cache-Control": { "schema": { "type": "string", "const": "private, no-store" } } }, "content": { "application/pdf": { "schema": { "type": "string", "format": "binary" } } } },
+          "401": { "description": "Autenticação necessária", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Escopo negado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Documento não encontrado sem enumeração", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "429": { "description": "Quota de download atingida", "headers": { "Retry-After": { "schema": { "type": "integer", "minimum": 1 } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "502": { "description": "Conteúdo ou fonte indisponível", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "503": { "description": "Entrega não configurada", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "description": "Erro interno seguro", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/cases/{caseId}/documents/{documentId}/materializations": {
+      "post": {
+        "operationId": "requestDocumentMaterialization",
+        "summary": "Solicita preparação assíncrona de um documento autorizado",
+        "tags": ["Documents"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "caseId", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Uuid" } },
+          { "name": "documentId", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Uuid" } }
+        ],
+        "responses": {
+          "202": { "description": "Preparação enfileirada ou já existente", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MaterializationResponse" } } } },
+          "400": { "description": "Solicitação inválida", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "401": { "description": "Autenticação necessária", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Documento não encontrado sem enumeração", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "429": { "description": "Limite temporário", "headers": { "Retry-After": { "schema": { "type": "integer", "minimum": 1 } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "503": { "description": "Preparação não configurada ou temporariamente indisponível", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "description": "Erro interno seguro", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/processes/{cnjNumber}/communications/{communicationNumber}/document": {
+      "get": {
+        "operationId": "openPublicationDocument",
+        "summary": "Obtém um documento público pela referência da publicação",
+        "tags": ["Publications"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "cnjNumber", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[0-9]{20}$" } },
+          { "name": "communicationNumber", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } }
+        ],
+        "responses": {
+          "200": { "description": "PDF privado", "headers": { "Content-Disposition": { "schema": { "type": "string", "pattern": "^attachment;" } }, "X-Document-Sha256": { "schema": { "$ref": "#/components/schemas/Sha256" } } }, "content": { "application/pdf": { "schema": { "type": "string", "format": "binary" } } } },
+          "400": { "description": "Referência inválida", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "401": { "description": "Autenticação necessária", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Publicação não encontrada", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "409": { "description": "Desafio do tribunal necessário", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ChallengeRequiredError" } } } },
+          "429": { "description": "Limite local ou da fonte atingido", "headers": { "Retry-After": { "schema": { "type": "integer", "minimum": 1 } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "502": { "description": "Fonte oficial indisponível", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "503": { "description": "Proxy não configurado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "description": "Erro interno seguro", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/processes/{cnjNumber}/communications/{communicationNumber}/document/challenge": {
+      "post": {
+        "operationId": "completePublicationDocumentChallenge",
+        "summary": "Conclui o desafio assistido de um documento público",
+        "tags": ["Publications"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "cnjNumber", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[0-9]{20}$" } },
+          { "name": "communicationNumber", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } }
+        ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DocumentChallengeRequest" } } } },
+        "responses": {
+          "200": { "description": "PDF privado", "headers": { "Content-Disposition": { "schema": { "type": "string", "pattern": "^attachment;" } }, "X-Document-Sha256": { "schema": { "$ref": "#/components/schemas/Sha256" } } }, "content": { "application/pdf": { "schema": { "type": "string", "format": "binary" } } } },
+          "400": { "description": "Referência, JSON ou resposta inválida", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "401": { "description": "Autenticação necessária", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Publicação não encontrada", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "410": { "description": "Desafio expirado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "415": { "description": "Media type não suportado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "429": { "description": "Limite local ou da fonte atingido", "headers": { "Retry-After": { "schema": { "type": "integer", "minimum": 1 } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "502": { "description": "Fonte oficial indisponível", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "503": { "description": "Fluxo assistido indisponível", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "description": "Erro interno seguro", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/account/data-exports": {
+      "post": {
+        "operationId": "requestAccountDataExport", "summary": "Solicita exportação dos dados da conta", "tags": ["Account data"], "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "202": { "description": "Exportação enfileirada ou já existente", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AccountDataRequestResponse" } } } },
+          "401": { "description": "Autenticação necessária", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "429": { "description": "Limite temporário", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "503": { "description": "Controles não configurados", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "description": "Erro interno seguro", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/account/data-exports/{requestId}": {
+      "get": {
+        "operationId": "getAccountDataExport", "summary": "Consulta o estado de uma exportação", "tags": ["Account data"], "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "requestId", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Uuid" } }],
+        "responses": {
+          "200": { "description": "Estado tenant-bound", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AccountDataRequestResponse" } } } },
+          "400": { "description": "Identificador inválido", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "401": { "description": "Autenticação necessária", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Ausente sem enumeração", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "description": "Erro interno seguro", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/account/data-exports/{requestId}/download": {
+      "get": {
+        "operationId": "downloadAccountDataExport", "summary": "Baixa a exportação privada e íntegra", "tags": ["Account data"], "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "requestId", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Uuid" } }],
+        "responses": {
+          "200": { "description": "JSON privado", "headers": { "Content-Disposition": { "schema": { "type": "string", "pattern": "^attachment;" } }, "Cache-Control": { "schema": { "type": "string", "const": "private, no-store" } } }, "content": { "application/json": { "schema": { "type": "string", "format": "binary" } } } },
+          "400": { "description": "Identificador inválido", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "401": { "description": "Autenticação necessária", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Ausente sem enumeração", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "409": { "description": "Ainda indisponível, expirado ou inválido", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "description": "Erro interno seguro", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/account/deletion-requests": {
+      "post": {
+        "operationId": "requestAccountDeletion", "summary": "Solicita exclusão irreversível da conta pessoal", "tags": ["Account data"], "security": [{ "bearerAuth": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AccountDeletionRequest" } } } },
+        "responses": {
+          "202": { "description": "Exclusão enfileirada", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AccountDataRequestResponse" } } } },
+          "400": { "description": "Confirmação inválida", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "401": { "description": "Autenticação ausente ou não recente", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "415": { "description": "Media type não suportado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "429": { "description": "Limite temporário", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "503": { "description": "Controles não configurados", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "description": "Erro interno seguro", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" }
+    },
+    "schemas": {
+      "Uuid": { "type": "string", "format": "uuid", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$" },
+      "OpaqueId": { "type": "string", "minLength": 1, "maxLength": 256 },
+      "Cursor": { "type": "string", "pattern": "^[A-Za-z0-9_-]{8,512}$" },
+      "Sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+      "DateTime": { "type": "string", "format": "date-time" },
+      "NullableDateTime": { "type": ["string", "null"], "format": "date-time" },
+      "AccountDeletionRequest": { "type": "object", "additionalProperties": false, "required": ["confirmation"], "properties": { "confirmation": { "type": "string", "const": "EXCLUIR MINHA CONTA" } } },
+      "AccountDataRequest": {
+        "type": "object", "additionalProperties": false,
+        "required": ["requestId", "requestType", "state", "requestedAt"],
+        "properties": {
+          "requestId": { "$ref": "#/components/schemas/Uuid" },
+          "requestType": { "type": "string", "enum": ["export", "deletion"] },
+          "state": { "type": "string", "enum": ["pending", "running", "completed", "failed", "expired"] },
+          "requestedAt": { "$ref": "#/components/schemas/DateTime" },
+          "completedAt": { "$ref": "#/components/schemas/NullableDateTime" },
+          "expiresAt": { "$ref": "#/components/schemas/NullableDateTime" },
+          "sizeBytes": { "type": ["integer", "null"], "minimum": 1, "maximum": 10485760 },
+          "downloadReady": { "type": "boolean" }
+        }
+      },
+      "AccountDataRequestResponse": { "type": "object", "additionalProperties": false, "required": ["request"], "properties": { "request": { "$ref": "#/components/schemas/AccountDataRequest" } } },
+      "Error": {
+        "type": "object", "additionalProperties": false,
+        "required": ["code", "message"],
+        "properties": {
+          "code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+          "message": { "type": "string", "minLength": 1, "maxLength": 500 }
+        }
+      },
+      "Membership": {
+        "type": "object", "additionalProperties": false,
+        "required": ["organizationId", "role"],
+        "properties": {
+          "organizationId": { "$ref": "#/components/schemas/OpaqueId" },
+          "role": { "type": "string", "enum": ["owner", "admin", "lawyer", "viewer"] }
+        }
+      },
+      "SessionResponse": {
+        "type": "object", "additionalProperties": false, "required": ["user"],
+        "properties": {
+          "user": {
+            "type": "object", "additionalProperties": false,
+            "required": ["userId", "memberships"],
+            "properties": {
+              "userId": { "$ref": "#/components/schemas/OpaqueId" },
+              "memberships": { "type": "array", "items": { "$ref": "#/components/schemas/Membership" }, "maxItems": 100 }
+            }
+          }
+        }
+      },
+      "CreateMonitoringSubjectRequest": {
+        "type": "object", "additionalProperties": false, "required": ["type", "value"],
+        "properties": {
+          "type": { "type": "string", "enum": ["name", "cpf", "cnpj"] },
+          "value": { "type": "string", "minLength": 1, "maxLength": 200 }
+        }
+      },
+      "MonitoringSubject": {
+        "type": "object", "additionalProperties": false,
+        "required": ["subjectId", "subjectType", "displayLabel", "status", "version", "archivedAt"],
+        "properties": {
+          "subjectId": { "$ref": "#/components/schemas/Uuid" },
+          "subjectType": { "type": "string", "enum": ["name", "cpf", "cnpj"] },
+          "displayLabel": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "status": { "type": "string", "enum": ["active", "inactive", "deleted"] },
+          "version": { "type": "integer", "minimum": 1 },
+          "archivedAt": { "$ref": "#/components/schemas/NullableDateTime" }
+        }
+      },
+      "MonitoringSubjectResponse": {
+        "type": "object", "additionalProperties": false, "required": ["subject"],
+        "properties": { "subject": { "$ref": "#/components/schemas/MonitoringSubject" } }
+      },
+      "MonitoringSubjectList": {
+        "type": "object", "additionalProperties": false, "required": ["items", "nextCursor"],
+        "properties": {
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/MonitoringSubject" }, "maxItems": 100 },
+          "nextCursor": { "type": ["string", "null"], "format": "uuid" }
+        }
+      },
+      "SearchRequest": {
+        "type": "object", "additionalProperties": false, "required": ["type", "value"],
+        "properties": {
+          "type": { "type": "string", "enum": ["name", "cpf", "cnpj"] },
+          "value": { "type": "string", "minLength": 1, "maxLength": 200 }
+        }
+      },
+      "SearchPublication": {
+        "type": "object", "additionalProperties": false, "required": ["id", "summary"],
+        "properties": {
+          "id": { "$ref": "#/components/schemas/OpaqueId" },
+          "availableAt": { "$ref": "#/components/schemas/DateTime" },
+          "organ": { "type": "string" }, "className": { "type": "string" },
+          "communicationType": { "type": "string" }, "medium": { "type": "string" },
+          "documentType": { "type": "string" }, "communicationNumber": { "type": "integer", "minimum": 1 },
+          "documentAvailable": { "type": "boolean", "const": true },
+          "summary": { "type": "string", "maxLength": 10000 }
+        }
+      },
+      "SearchProcess": {
+        "type": "object", "additionalProperties": false,
+        "required": ["cnjNumber", "publicationCount", "publications"],
+        "properties": {
+          "cnjNumber": { "type": "string", "pattern": "^[0-9]{7}-[0-9]{2}\\.[0-9]{4}\\.[0-9]\\.[0-9]{2}\\.[0-9]{4}$" },
+          "tribunal": { "type": "string" }, "organ": { "type": "string" }, "className": { "type": "string" },
+          "publicationCount": { "type": "integer", "minimum": 1 },
+          "lastPublicationAt": { "$ref": "#/components/schemas/DateTime" },
+          "publications": { "type": "array", "items": { "$ref": "#/components/schemas/SearchPublication" } }
+        }
+      },
+      "SearchResponse": {
+        "type": "object", "additionalProperties": false,
+        "required": ["target", "source", "summary", "processes", "warnings"],
+        "properties": {
+          "target": { "type": "object", "additionalProperties": false, "required": ["id", "type", "displayValue"], "properties": { "id": { "$ref": "#/components/schemas/OpaqueId" }, "type": { "type": "string", "enum": ["name", "cpf", "cnpj"] }, "displayValue": { "type": "string" } } },
+          "source": { "type": "object", "additionalProperties": false, "required": ["id", "official", "strategy", "confidence"], "properties": { "id": { "type": "string", "const": "DJEN" }, "official": { "type": "boolean", "const": true }, "strategy": { "type": "string", "enum": ["nome", "texto"] }, "confidence": { "type": "string", "enum": ["medium", "experimental"] } } },
+          "summary": { "type": "object", "additionalProperties": false, "required": ["publications", "processes", "ungroupedPublications", "truncated"], "properties": { "publications": { "type": "integer", "minimum": 0 }, "processes": { "type": "integer", "minimum": 0 }, "ungroupedPublications": { "type": "integer", "minimum": 0 }, "truncated": { "type": "boolean" } } },
+          "processes": { "type": "array", "items": { "$ref": "#/components/schemas/SearchProcess" } },
+          "warnings": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "CaseSource": {
+        "type": "object", "additionalProperties": false, "required": ["sourceId", "official", "collectedAt"],
+        "properties": { "sourceId": { "$ref": "#/components/schemas/OpaqueId" }, "official": { "type": "boolean" }, "collectedAt": { "$ref": "#/components/schemas/DateTime" }, "officialIdentifier": { "type": "string" } }
+      },
+      "CaseSummary": {
+        "type": "object", "additionalProperties": false,
+        "required": ["caseId", "cnjNumber", "tribunal", "identityStatus", "lastUpdatedAt", "sources"],
+        "properties": {
+          "caseId": { "$ref": "#/components/schemas/OpaqueId" },
+          "cnjNumber": { "type": "string" }, "tribunal": { "type": "string" },
+          "identityStatus": { "type": "string", "enum": ["confirmed", "possible_homonym"] },
+          "lastUpdatedAt": { "$ref": "#/components/schemas/DateTime" },
+          "sources": { "type": "array", "items": { "$ref": "#/components/schemas/CaseSource" } }
+        }
+      },
+      "Page": {
+        "type": "object", "additionalProperties": false, "required": ["nextCursor"],
+        "properties": { "nextCursor": { "type": ["string", "null"] } }
+      },
+      "CaseList": {
+        "type": "object", "additionalProperties": false, "required": ["cases", "page"],
+        "properties": { "cases": { "type": "array", "items": { "$ref": "#/components/schemas/CaseSummary" }, "maxItems": 100 }, "page": { "$ref": "#/components/schemas/Page" } }
+      },
+      "TenantScope": {
+        "type": "object", "additionalProperties": false, "required": ["kind"],
+        "properties": { "kind": { "type": "string", "enum": ["personal", "organization"] }, "userId": { "type": "string" }, "organizationId": { "type": "string" } }
+      },
+      "EventSource": {
+        "type": "object", "additionalProperties": false, "required": ["sourceId", "official", "collectedAt"],
+        "properties": { "sourceId": { "$ref": "#/components/schemas/OpaqueId" }, "official": { "type": "boolean" }, "collectedAt": { "$ref": "#/components/schemas/DateTime" } }
+      },
+      "CaseEvent": {
+        "type": "object", "additionalProperties": false, "required": ["eventId", "title"],
+        "properties": {
+          "eventId": { "$ref": "#/components/schemas/OpaqueId" }, "caseId": { "$ref": "#/components/schemas/OpaqueId" },
+          "eventType": { "type": "string", "enum": ["publication"] }, "occurredAt": { "$ref": "#/components/schemas/DateTime" },
+          "title": { "type": "string" }, "description": { "type": ["string", "null"] },
+          "sourceId": { "type": "string" }, "sources": { "type": "array", "items": { "$ref": "#/components/schemas/EventSource" } }
+        }
+      },
+      "CanonicalCase": {
+        "type": "object", "additionalProperties": false,
+        "required": ["caseId", "scope", "cnjNumber", "tribunal", "identityStatus", "lastUpdatedAt", "sources", "events"],
+        "properties": {
+          "caseId": { "$ref": "#/components/schemas/OpaqueId" }, "scope": { "$ref": "#/components/schemas/TenantScope" },
+          "cnjNumber": { "type": "string" }, "tribunal": { "type": "string" }, "organ": { "type": "string" }, "className": { "type": "string" },
+          "identityStatus": { "type": "string", "enum": ["confirmed", "possible_homonym"] },
+          "lastUpdatedAt": { "$ref": "#/components/schemas/DateTime" },
+          "sources": { "type": "array", "items": { "$ref": "#/components/schemas/CaseSource" } },
+          "events": { "type": "array", "items": { "$ref": "#/components/schemas/CaseEvent" } }
+        }
+      },
+      "CaseResponse": { "type": "object", "additionalProperties": false, "required": ["case"], "properties": { "case": { "$ref": "#/components/schemas/CanonicalCase" } } },
+      "CaseEventList": { "type": "object", "additionalProperties": false, "required": ["events"], "properties": { "events": { "type": "array", "items": { "$ref": "#/components/schemas/CaseEvent" }, "maxItems": 100 }, "page": { "$ref": "#/components/schemas/Page" } } },
+      "DocumentArtifact": {
+        "type": "object", "additionalProperties": false, "required": ["artifactId", "mediaType", "sizeBytes", "sha256", "expiresAt"],
+        "properties": { "artifactId": { "$ref": "#/components/schemas/Uuid" }, "mediaType": { "type": "string", "const": "application/pdf" }, "sizeBytes": { "type": "integer", "minimum": 0 }, "sha256": { "$ref": "#/components/schemas/Sha256" }, "expiresAt": { "$ref": "#/components/schemas/DateTime" } }
+      },
+      "Document": {
+        "type": "object", "additionalProperties": false, "required": ["documentId", "caseId", "title"],
+        "properties": {
+          "documentId": { "$ref": "#/components/schemas/OpaqueId" }, "caseId": { "$ref": "#/components/schemas/OpaqueId" },
+          "caseEventId": { "type": ["string", "null"] }, "title": { "type": "string" }, "documentType": { "type": ["string", "null"] },
+          "accessClass": { "type": "string", "enum": ["public_official", "restricted", "unknown"] },
+          "availabilityStatus": { "type": "string", "enum": ["metadata_only", "available", "expired", "unavailable"] },
+          "expectedMediaType": { "type": "string", "const": "application/pdf" },
+          "sourceCreatedAt": { "$ref": "#/components/schemas/DateTime" }, "lastVerifiedAt": { "$ref": "#/components/schemas/DateTime" },
+          "source": { "type": "object", "additionalProperties": false, "required": ["sourceId", "official"], "properties": { "sourceId": { "type": "string" }, "official": { "type": "boolean" } } },
+          "artifact": { "type": ["object", "null"], "properties": { "artifactId": { "$ref": "#/components/schemas/Uuid" }, "mediaType": { "type": "string", "const": "application/pdf" }, "sizeBytes": { "type": "integer", "minimum": 0 }, "sha256": { "$ref": "#/components/schemas/Sha256" }, "expiresAt": { "$ref": "#/components/schemas/DateTime" } } },
+          "sourceId": { "type": "string" }, "fileName": { "type": "string" }, "mediaType": { "type": "string", "const": "application/pdf" }, "collectedAt": { "$ref": "#/components/schemas/DateTime" }
+        }
+      },
+      "DocumentList": { "type": "object", "additionalProperties": false, "required": ["documents"], "properties": { "documents": { "type": "array", "items": { "$ref": "#/components/schemas/Document" }, "maxItems": 100 }, "page": { "$ref": "#/components/schemas/Page" } } },
+      "MaterializationResponse": {
+        "type": "object", "additionalProperties": false, "required": ["materializationId", "documentId", "state"],
+        "properties": { "materializationId": { "$ref": "#/components/schemas/Uuid" }, "documentId": { "$ref": "#/components/schemas/Uuid" }, "state": { "type": "string", "enum": ["queued", "processing", "available"] } }
+      },
+      "Alert": {
+        "type": "object", "additionalProperties": false,
+        "required": ["alertId", "subjectId", "subjectLabel", "tenantCaseId", "caseId", "caseEventId", "cnjNumber", "tribunal", "alertType", "status", "matchStatus", "sourceOccurredAt", "createdAt", "readAt"],
+        "properties": {
+          "alertId": { "$ref": "#/components/schemas/Uuid" }, "subjectId": { "$ref": "#/components/schemas/Uuid" }, "subjectLabel": { "type": "string" },
+          "tenantCaseId": { "$ref": "#/components/schemas/Uuid" }, "caseId": { "$ref": "#/components/schemas/Uuid" }, "caseEventId": { "$ref": "#/components/schemas/Uuid" },
+          "cnjNumber": { "type": "string" }, "tribunal": { "type": "string" }, "alertType": { "type": "string", "const": "case_discovered" },
+          "status": { "type": "string", "enum": ["unread", "read"] }, "matchStatus": { "type": "string", "const": "unverified" },
+          "sourceOccurredAt": { "$ref": "#/components/schemas/DateTime" }, "createdAt": { "$ref": "#/components/schemas/DateTime" }, "readAt": { "$ref": "#/components/schemas/NullableDateTime" }
+        }
+      },
+      "AlertList": { "type": "object", "additionalProperties": false, "required": ["items", "nextCursor"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/Alert" }, "maxItems": 100 }, "nextCursor": { "type": ["string", "null"] } } },
+      "AlertResponse": { "type": "object", "additionalProperties": false, "required": ["alert"], "properties": { "alert": { "$ref": "#/components/schemas/Alert" } } },
+      "DocumentChallengeRequest": {
+        "type": "object", "additionalProperties": false, "required": ["challengeId", "answer"],
+        "properties": { "challengeId": { "$ref": "#/components/schemas/OpaqueId" }, "answer": { "type": "string", "pattern": "^[A-Za-z0-9]+$", "minLength": 1, "maxLength": 32 } }
+      },
+      "ChallengeRequiredError": {
+        "type": "object", "additionalProperties": false, "required": ["code", "message", "challenge"],
+        "properties": {
+          "code": { "type": "string", "const": "DOCUMENT_CHALLENGE_REQUIRED" }, "message": { "type": "string" },
+          "challenge": { "type": "object", "additionalProperties": false, "required": ["challengeId", "imageDataUrl", "expiresAt"], "properties": { "challengeId": { "$ref": "#/components/schemas/OpaqueId" }, "imageDataUrl": { "type": "string", "pattern": "^data:image/" }, "expiresAt": { "$ref": "#/components/schemas/DateTime" } } }
+        }
+      }
+    }
+  }
+}

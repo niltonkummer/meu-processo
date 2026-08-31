@@ -9,6 +9,7 @@ export interface OrganizationMembership {
 export interface AuthenticatedPrincipal {
   userId: string;
   memberships: readonly OrganizationMembership[];
+  authenticatedAt?: Date;
 }
 
 export type TenantScope =

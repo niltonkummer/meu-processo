@@ -14,6 +14,12 @@ Impedir que código, configuração ou infraestrutura avance sem uma avaliação
 6. Para autorizar deploy de validação, criar ou atualizar `.github/deploy-cost-assessment` com o caminho da avaliação aprovada no mesmo pull request.
 7. Após deploy, preencher os custos reais em 7 e 30 dias.
 
+Quando recursos são falsos por padrão para impedir ativação acidental, manter
+`infra/terraform/infracost.tfvars` com valores exclusivamente sintéticos e o
+opt-in necessário à estimativa. O arquivo não usa o sufixo `.auto.tfvars`, não
+contém secrets e nunca pode ser passado pelo workflow de deploy. Assim o diff
+mostra o custo potencial sem mudar o comportamento seguro do Terraform.
+
 Antes do passo 3, a única alteração permitida é criar ou corrigir a própria avaliação de custo. Nenhum runtime, recurso, dado ou dependência pode ser modificado nessa etapa.
 
 O check `Infra cost / Cost assessment` roda em todo pull request. Mudanças

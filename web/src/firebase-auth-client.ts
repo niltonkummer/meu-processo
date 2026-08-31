@@ -1,12 +1,14 @@
 import { getApp, getApps, initializeApp, type FirebaseOptions } from "firebase/app";
 import {
   createUserWithEmailAndPassword,
+  EmailAuthProvider,
   connectAuthEmulator,
   getAuth,
   inMemoryPersistence,
   sendEmailVerification,
   setPersistence,
   signInWithEmailAndPassword,
+  reauthenticateWithCredential,
   signOut as firebaseSignOut,
   type Auth,
   type User,
@@ -239,6 +241,20 @@ const toAuthUser = (
     ...(verificationDelivery ? { verificationDelivery } : {}),
     getIdToken: () => user.getIdToken(),
     sendVerification,
+    reauthenticate: async (password: string) => {
+      if (!user.email || password.length < 1) {
+        throw new SafeAuthenticationError("Confirme sua senha novamente.");
+      }
+      try {
+        await reauthenticateWithCredential(
+          user,
+          EmailAuthProvider.credential(user.email, password),
+        );
+        await user.getIdToken(true);
+      } catch (error) {
+        throw mapFirebaseProviderError(error, false);
+      }
+    },
   };
 };
 

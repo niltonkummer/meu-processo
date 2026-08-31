@@ -61,6 +61,7 @@ describe("AccountAccess", () => {
     expect(onSessionChange).toHaveBeenLastCalledWith({
       email: "pessoa@example.test",
       getIdToken: expect.any(Function),
+      terminate: expect.any(Function),
     });
     const session = onSessionChange.mock.lastCall?.[0] as AuthenticatedWebSession;
     await expect(session.getIdToken()).resolves.toBe("firebase-id-token");
@@ -147,6 +148,7 @@ describe("AccountAccess", () => {
     expect(onSessionChange).toHaveBeenCalledWith({
       email: "pessoa@example.test",
       getIdToken: expect.any(Function),
+      terminate: expect.any(Function),
     });
   });
 
