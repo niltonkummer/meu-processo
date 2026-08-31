@@ -56,6 +56,11 @@ run "service_is_private_by_default_and_scales_to_zero" {
   }
 
   assert {
+    condition     = google_cloud_run_v2_service.app.template[0].timeout == "180s" && google_cloud_run_v2_service.browser_renderer.template[0].timeout == "180s"
+    error_message = "Cloud Run request timeouts must outlive the bounded 120-second human challenge session."
+  }
+
+  assert {
     condition     = google_cloud_run_v2_service.app.deletion_protection == true
     error_message = "Deletion protection must remain enabled."
   }

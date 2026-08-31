@@ -200,8 +200,11 @@ resource "google_cloud_run_v2_service" "app" {
   invoker_iam_disabled = var.public_access_enabled
 
   template {
-    service_account                  = google_service_account.runtime.email
-    timeout                          = "45s"
+    service_account = google_service_account.runtime.email
+    # The application keeps an authenticated WebSocket open while the user
+    # answers the tribunal challenge. Leave bounded infrastructure headroom
+    # beyond the 120-second application session timeout.
+    timeout                          = "180s"
     max_instance_request_concurrency = 20
     execution_environment            = "EXECUTION_ENVIRONMENT_GEN2"
     session_affinity                 = true
@@ -334,8 +337,10 @@ resource "google_cloud_run_v2_service" "browser_renderer" {
   invoker_iam_disabled = false
 
   template {
-    service_account                  = google_service_account.browser_renderer.email
-    timeout                          = "120s"
+    service_account = google_service_account.browser_renderer.email
+    # The renderer session expires internally after 120 seconds. Cloud Run
+    # must not terminate the WebSocket before that controlled shutdown.
+    timeout                          = "180s"
     max_instance_request_concurrency = 1
     execution_environment            = "EXECUTION_ENVIRONMENT_GEN2"
     session_affinity                 = false
