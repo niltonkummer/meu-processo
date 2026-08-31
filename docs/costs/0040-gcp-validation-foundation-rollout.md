@@ -2,7 +2,8 @@
 
 <!-- infra-cost-assessment:v1 -->
 
-**Status:** aplicado e verificado no ambiente de validação
+**Status:** aprovado para implementação e rollout de validação
+**Estado do rollout:** aplicado e verificado no ambiente de validação
 **Solicitado por:** proprietário do produto  
 **Responsável:** engenharia do Meu Processo  
 **Data da avaliação:** 31 de agosto de 2026  
