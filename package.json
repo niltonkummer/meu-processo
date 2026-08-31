@@ -26,7 +26,7 @@
   },
   "dependencies": {
     "entities": "8.0.0",
-    "firebase": "12.8.0",
+    "firebase": "12.18.0",
     "firebase-admin": "14.3.0",
     "google-auth-library": "11.0.2",
     "playwright-core": "1.62.0",
