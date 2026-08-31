@@ -2,7 +2,7 @@
 
 <!-- infra-cost-assessment:v1 -->
 
-**Status:** aprovado para implementação e rollout de validação
+**Status:** aplicado e verificado no ambiente de validação
 **Solicitado por:** proprietário do produto  
 **Responsável:** engenharia do Meu Processo  
 **Data da avaliação:** 31 de agosto de 2026  
@@ -99,9 +99,10 @@ porque nenhum dado processual será copiado neste rollout.
 - Supabase Free e Infisical não recebem upgrade nesta avaliação.
 - Brevo, fontes judiciais, proxy, IA, suporte, impostos e câmbio ficam fora do
   rollout e exigem avaliação própria antes de uso pago.
-- O Infracost local não foi executado porque a chave existe somente no secret
-  protegido do GitHub; o diff autenticado continua obrigatório no pull request
-  antes de qualquer apply.
+- O diff autenticado do Infracost no pull request estimou aumento modelado de
+  US$ 0,02/mês e novo total modelado de US$ 0,04/mês. Custos dependentes de uso
+  não são totalmente modelados; por isso o limite conservador aprovado de
+  US$ 1,47/mês permanece autoritativo.
 
 ## 6. Limites e condições de parada
 
@@ -150,5 +151,11 @@ e registro de evidência no mesmo checkpoint.
 
 | Data | Custo estimado | Custo real | Variação | Explicação | Ação |
 |---|---:|---:|---:|---|---|
+| 31/08/2026 | US$ 0,04/mês modelados; até US$ 1,47/mês conservadores | pendente | pendente | rollout passivo aplicado, sem carga, schedules ou versões de segredo | manter e observar |
 | +7 dias | até US$ 1,47/mês | pendente | pendente | conferir Billing e logs | manter ou rollback |
 | +30 dias | até US$ 1,47/mês | pendente | pendente | recalibrar volumes | nova avaliação |
+
+O plano aplicado continha 33 criações, quatro atualizações somente de labels e
+nenhuma destruição ou substituição. A verificação posterior confirmou plano
+Terraform sem alterações. A evidência operacional completa está registrada na
+[implementação 0037](../implementation/0037-gcp-validation-foundation-rollout.md).
