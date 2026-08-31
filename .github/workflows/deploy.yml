@@ -70,6 +70,34 @@ jobs:
           node-version: "24.20.0"
           cache: npm
 
+      - name: Verify public GitHub OIDC trust claims
+        env:
+          OIDC_AUDIENCE: https://iam.googleapis.com/${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+        run: |
+          set -euo pipefail
+          oidc_token=$(curl --silent --show-error --fail-with-body --get \
+            --header "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            --data-urlencode "audience=${OIDC_AUDIENCE}" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL" | jq -er '.value')
+          payload=${oidc_token#*.}
+          payload=${payload%%.*}
+          payload=${payload//-/+}
+          payload=${payload//_/\/}
+          case $((${#payload} % 4)) in
+            2) payload="${payload}==" ;;
+            3) payload="${payload}=" ;;
+          esac
+          public_claims=$(printf '%s' "$payload" | base64 --decode | jq '{sub, repository, repository_id, repository_owner_id}')
+          jq -e \
+            --arg sub 'repo:niltonkummer/meu-processo:environment:validation' \
+            --arg repository 'niltonkummer/meu-processo' \
+            --arg repository_id '1350848235' \
+            --arg owner_id '823477' \
+            '.sub == $sub and .repository == $repository and .repository_id == $repository_id and .repository_owner_id == $owner_id' \
+            <<< "$public_claims" >/dev/null
+          jq . <<< "$public_claims"
+          unset oidc_token payload public_claims
+
       - name: Re-run release gates
         run: |
           npm ci --ignore-scripts
