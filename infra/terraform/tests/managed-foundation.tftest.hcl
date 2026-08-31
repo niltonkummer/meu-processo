@@ -133,6 +133,24 @@ run "approved_validation_rollout_uses_the_reviewed_cost_gate" {
     condition     = length(google_service_account.managed_workload) == 5
     error_message = "The approved validation rollout must preserve one identity per privileged workload."
   }
+
+  assert {
+    condition = alltrue(concat(
+      [
+        google_kms_crypto_key.artifact_registry.labels["service"] == "meu-processo",
+        google_kms_crypto_key.artifact_registry.labels["environment"] == "validation",
+        google_kms_crypto_key.process_objects[0].labels["service"] == "meu-processo",
+        google_kms_crypto_key.process_objects[0].labels["environment"] == "validation",
+        google_storage_bucket.process_objects[0].labels["service"] == "meu-processo",
+        google_storage_bucket.process_objects[0].labels["environment"] == "validation",
+      ],
+      [for secret in google_secret_manager_secret.managed :
+        secret.labels["service"] == "meu-processo" &&
+        secret.labels["environment"] == "validation"
+      ],
+    ))
+    error_message = "Every stateful managed resource must expose GCP-compatible FinOps service and environment labels."
+  }
 }
 
 run "approved_rollout_token_is_rejected_outside_validation" {

@@ -3,6 +3,7 @@ locals {
     application = "meu-processo"
     environment = var.environment
     managed_by  = "terraform"
+    service     = "meu-processo"
   }
 
   required_services = toset([
@@ -131,6 +132,7 @@ resource "google_kms_crypto_key" "artifact_registry" {
   name            = "artifact-registry"
   key_ring        = google_kms_key_ring.artifact_registry.id
   rotation_period = "7776000s"
+  labels          = local.labels
 
   lifecycle {
     prevent_destroy = true

@@ -111,6 +111,7 @@ resource "google_kms_crypto_key" "process_objects" {
   name            = "process-objects-${var.environment}"
   key_ring        = google_kms_key_ring.artifact_registry.id
   rotation_period = "7776000s"
+  labels          = local.labels
 
   lifecycle {
     prevent_destroy = true
