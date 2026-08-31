@@ -58,6 +58,8 @@ services:
       - /database/tests/0012_tenant_lifecycle_worker_test.sql
       - /database/tests/0013_account_data_controls_test.sql
       - /database/tests/0014_supavisor_readiness_test.sql
+      - /database/tests/0015_billing_foundation_test.sql
+      - /database/tests/0016_profile_case_summaries_test.sql
     read_only: true
     environment:
       PGPASSWORD: local-only-superuser-password
@@ -89,6 +91,7 @@ services:
       DISPATCHER_DATABASE_URL: postgresql://app_dispatcher_local:local-only-dispatcher-password@postgres:5432/meu_processo
       DOCUMENT_WORKER_DATABASE_URL: postgresql://app_document_worker_local:local-only-document-worker-password@postgres:5432/meu_processo
       LIFECYCLE_WORKER_DATABASE_URL: postgresql://app_lifecycle_worker_local:local-only-lifecycle-worker-password@postgres:5432/meu_processo
+      BILLING_WEBHOOK_DATABASE_URL: postgresql://app_billing_webhook_local:local-only-billing-webhook-password@postgres:5432/meu_processo
     tmpfs:
       - /tmp:size=64m,mode=1777
       - /app/node_modules/.vite-temp:size=16m,mode=1777

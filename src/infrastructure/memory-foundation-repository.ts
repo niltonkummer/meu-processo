@@ -42,6 +42,8 @@ const toMonitoredSubject = (
   status: subject.status,
   version: subject.version,
   archivedAt: subject.archivedAt,
+  processCount: subject.processCount,
+  processSummary: subject.processSummary,
 });
 
 export class MemoryFoundationRepository implements FoundationRepository {
@@ -111,6 +113,8 @@ export class MemoryFoundationRepository implements FoundationRepository {
         status: "active",
         version: 1,
         archivedAt: null,
+        processCount: 0,
+        processSummary: [],
       });
     }
     this.subjects.set(context.tenantId, subjects);

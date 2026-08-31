@@ -7,6 +7,14 @@ export interface MonitoringProfile {
   readonly status: "active" | "inactive" | "deleted";
   readonly version: number;
   readonly archivedAt: string | null;
+  readonly processCount: number;
+  readonly processSummary: readonly MonitoringProfileProcessSummary[];
+}
+
+export interface MonitoringProfileProcessSummary {
+  readonly cnjNumber: string;
+  readonly tribunal: string;
+  readonly lastActivityAt: string;
 }
 
 export interface MonitoringProfileCommand {
@@ -33,6 +41,8 @@ const SUBJECT_KEYS = new Set([
   "status",
   "version",
   "archivedAt",
+  "processCount",
+  "processSummary",
 ]);
 const MAX_PROFILE_PAGES = 100;
 
@@ -57,6 +67,33 @@ const asRecord = (value: unknown): Record<string, unknown> => {
   return value as Record<string, unknown>;
 };
 
+const parseProcessSummary = (
+  value: unknown,
+): readonly MonitoringProfileProcessSummary[] => {
+  if (!Array.isArray(value) || value.length > 3) throw invalidResponse();
+  return value.map((item) => {
+    const record = asRecord(item);
+    if (
+      Object.keys(record).length !== 3 ||
+      typeof record.cnjNumber !== "string" ||
+      !/^[0-9]{7}-[0-9]{2}\.[0-9]{4}\.[0-9]\.[0-9]{2}\.[0-9]{4}$/u.test(
+        record.cnjNumber,
+      ) ||
+      typeof record.tribunal !== "string" ||
+      !/^[A-Z][A-Z0-9-]{1,19}$/u.test(record.tribunal) ||
+      typeof record.lastActivityAt !== "string" ||
+      Number.isNaN(Date.parse(record.lastActivityAt))
+    ) {
+      throw invalidResponse();
+    }
+    return {
+      cnjNumber: record.cnjNumber,
+      tribunal: record.tribunal,
+      lastActivityAt: record.lastActivityAt,
+    };
+  });
+};
+
 const parseProfile = (value: unknown): MonitoringProfile => {
   const record = asRecord(value);
   if (
@@ -73,7 +110,9 @@ const parseProfile = (value: unknown): MonitoringProfile => {
     Number(record.version) < 1 ||
     (record.archivedAt !== null &&
       (typeof record.archivedAt !== "string" ||
-        Number.isNaN(Date.parse(record.archivedAt))))
+        Number.isNaN(Date.parse(record.archivedAt)))) ||
+    !Number.isSafeInteger(record.processCount) ||
+    Number(record.processCount) < 0
   ) {
     throw invalidResponse();
   }
@@ -84,6 +123,8 @@ const parseProfile = (value: unknown): MonitoringProfile => {
     status: record.status as MonitoringProfile["status"],
     version: Number(record.version),
     archivedAt: record.archivedAt,
+    processCount: Number(record.processCount),
+    processSummary: parseProcessSummary(record.processSummary),
   };
 };
 

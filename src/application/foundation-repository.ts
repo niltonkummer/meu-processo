@@ -35,6 +35,14 @@ export interface MonitoredSubject {
   readonly status: "active" | "inactive" | "deleted";
   readonly version: number;
   readonly archivedAt: Date | null;
+  readonly processCount: number;
+  readonly processSummary: readonly MonitoredSubjectProcessSummary[];
+}
+
+export interface MonitoredSubjectProcessSummary {
+  readonly cnjNumber: string;
+  readonly tribunal: string;
+  readonly lastActivityAt: Date;
 }
 
 export interface MonitoredSubjectUpdate {

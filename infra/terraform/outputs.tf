@@ -66,3 +66,13 @@ output "managed_workload_service_accounts" {
     workload => account.email
   }
 }
+
+output "github_workload_identity_provider" {
+  description = "Fully qualified provider name configured as the validation environment GCP_WORKLOAD_IDENTITY_PROVIDER variable."
+  value       = google_iam_workload_identity_pool_provider.github.name
+}
+
+output "github_deploy_service_account" {
+  description = "Keyless service account configured as the validation environment GCP_DEPLOY_SERVICE_ACCOUNT variable."
+  value       = google_service_account.deployer.email
+}

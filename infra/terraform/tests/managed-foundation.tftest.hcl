@@ -40,6 +40,11 @@ run "managed_foundation_plan_is_private_and_least_privilege" {
   }
 
   assert {
+    condition     = google_kms_crypto_key_iam_member.process_objects_gcs[0].member == "serviceAccount:service-${data.google_project.current.number}@gs-project-accounts.iam.gserviceaccount.com"
+    error_message = "The GCS KMS binding must use the deterministic project service agent."
+  }
+
+  assert {
     condition = (
       google_storage_bucket.process_objects[0].uniform_bucket_level_access == true &&
       google_storage_bucket.process_objects[0].public_access_prevention == "enforced" &&
@@ -57,6 +62,15 @@ run "managed_foundation_plan_is_private_and_least_privilege" {
   assert {
     condition     = google_storage_bucket.process_objects[0].soft_delete_policy[0].retention_duration_seconds == 604800
     error_message = "Soft delete must be bounded to seven days."
+  }
+
+  assert {
+    condition = anytrue([
+      for rule in google_storage_bucket.process_objects[0].lifecycle_rule :
+      one(rule.action).type == "Delete" &&
+      one(rule.condition).days_since_noncurrent_time == 7
+    ])
+    error_message = "Non-current object versions must be deleted after seven days."
   }
 
   assert {

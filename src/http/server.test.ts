@@ -231,6 +231,8 @@ describe("HTTP server", () => {
       status: "active" as const,
       version: 1,
       archivedAt: null,
+      processCount: 0,
+      processSummary: [],
     };
     const publicSubject = {
       subjectId: subject.subjectId,
@@ -239,6 +241,8 @@ describe("HTTP server", () => {
       status: subject.status,
       version: subject.version,
       archivedAt: subject.archivedAt,
+      processCount: subject.processCount,
+      processSummary: subject.processSummary,
     };
     const monitoringProfiles: MonitoringProfilesService = {
       create: vi.fn().mockResolvedValue(subject),

@@ -6,11 +6,13 @@ import { handleMonitoringProfiles } from "./monitoring-subjects.js";
 import { handlePublicationProxy } from "./publications.js";
 import { handleAuthenticatedSearch } from "./search.js";
 import { handlePrivateSession } from "./session.js";
+import { handlePrivateBilling } from "./billing.js";
 
 // Order is part of the transport contract: specific publication routes are
 // resolved before generic case/search fallbacks.
 export const privateRequestHandlers: readonly PrivateRequestHandler[] = [
   handlePrivateSession,
+  handlePrivateBilling,
   handleAccountData,
   handlePublicationProxy,
   handleMonitoringProfiles,

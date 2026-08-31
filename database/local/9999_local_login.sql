@@ -87,6 +87,25 @@ $$;
 
 grant app_lifecycle_worker to app_lifecycle_worker_local;
 
+do $$
+begin
+  if not exists (
+    select 1 from pg_roles where rolname = 'app_billing_webhook_local'
+  ) then
+    create role app_billing_webhook_local
+      login
+      inherit
+      password 'local-only-billing-webhook-password'
+      nosuperuser
+      nocreatedb
+      nocreaterole
+      nobypassrls;
+  end if;
+end
+$$;
+
+grant app_billing_webhook to app_billing_webhook_local;
+
 insert into app_private.sources (
   source_id,
   source_code,

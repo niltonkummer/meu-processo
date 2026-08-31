@@ -97,6 +97,10 @@ export const foundationRepositoryContract = (
         expect(first.items.map(({ subjectId }) => subjectId)).toEqual([
           identifier(2, 101),
         ]);
+        expect(first.items[0]).toMatchObject({
+          processCount: 0,
+          processSummary: [],
+        });
         expect(first.items[0]).not.toHaveProperty("protectedReference");
         expect(first.items[0]).not.toHaveProperty("encryptedValue");
         expect(first.items[0]).not.toHaveProperty("keyVersion");

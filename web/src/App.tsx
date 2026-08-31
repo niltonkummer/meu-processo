@@ -3,6 +3,7 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 import { AccountAccess } from "./AccountAccess";
 import { ActivityCenter } from "./ActivityCenter";
 import { AccountDataControls } from "./AccountDataControls";
+import { BillingPanel } from "./BillingPanel";
 import type { AuthClient, AuthenticatedWebSession } from "./auth-client";
 import {
   openDocumentSession,
@@ -73,6 +74,11 @@ interface PublicationChallenge {
   imageDataUrl: string;
   expiresAt: string;
   answer: string;
+}
+
+interface DocumentSessionStatus {
+  operationId: string;
+  message: string;
 }
 
 type ViewMode = "simple" | "advanced";
@@ -157,6 +163,7 @@ export function App({
   const [profilesLoading, setProfilesLoading] = useState(false);
   const [profileUpdatingId, setProfileUpdatingId] = useState("");
   const [result, setResult] = useState<SearchResponse>();
+  const [searchHistory, setSearchHistory] = useState<readonly SearchResponse[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("simple");
@@ -165,6 +172,8 @@ export function App({
   const [downloadingPublication, setDownloadingPublication] = useState("");
   const [publicationChallenge, setPublicationChallenge] =
     useState<PublicationChallenge>();
+  const [documentStatus, setDocumentStatus] =
+    useState<DocumentSessionStatus>();
   const documentSession = useRef<DocumentSessionControl | undefined>(undefined);
   const profileLoadGeneration = useRef(0);
 
@@ -207,6 +216,7 @@ export function App({
     }
     setLoading(true);
     setError("");
+    let createdProfile: MonitoringProfile | undefined;
     try {
       const token = await authSession.getIdToken();
       try {
@@ -214,6 +224,7 @@ export function App({
           type: targetType,
           value: targetValue,
         });
+        createdProfile = profile;
         setProfiles((current) => [
           profile,
           ...current.filter((item) => item.subjectId !== profile.subjectId),
@@ -245,6 +256,30 @@ export function App({
       if (!isSearchResponse(body)) throw new Error("Resposta inesperada da fonte.");
 
       setResult(body);
+      setSearchHistory((current) => [
+        body,
+        ...current.filter((item) => item.target.id !== body.target.id),
+      ].slice(0, 20));
+      if (createdProfile) {
+        const profileId = createdProfile.subjectId;
+        setProfiles((current) =>
+          current.map((profile) =>
+            profile.subjectId === profileId
+              ? {
+                  ...profile,
+                  processCount: body.summary.processes,
+                  processSummary: body.processes.slice(0, 3).map((process) => ({
+                    cnjNumber: process.cnjNumber,
+                    tribunal: process.tribunal ?? "BR",
+                    lastActivityAt: process.lastPublicationAt
+                      ? `${process.lastPublicationAt}T12:00:00.000Z`
+                      : "1970-01-01T00:00:00.000Z",
+                  })),
+                }
+              : profile,
+          ),
+        );
+      }
       setSelectedProcess(undefined);
     } catch (caught) {
       setResult(undefined);
@@ -276,9 +311,11 @@ export function App({
       setProfiles([]);
       setProfilesLoading(false);
       setResult(undefined);
+      setSearchHistory([]);
       setSelectedProcess(undefined);
       setDownloadingPublication("");
       setPublicationChallenge(undefined);
+      setDocumentStatus(undefined);
       setError("");
     }
   };
@@ -315,6 +352,10 @@ export function App({
 
     const operationId = `${process.cnjNumber}:${publication.communicationNumber}`;
     setDownloadingPublication(operationId);
+    setDocumentStatus({
+      operationId,
+      message: "Conectando ao worker brasileiro…",
+    });
     documentSession.current?.close();
     documentSession.current = undefined;
     setPublicationChallenge(undefined);
@@ -325,7 +366,13 @@ export function App({
         path: `/api/v1/processes/${cnjDigits(process.cnjNumber)}/communications/${publication.communicationNumber}/document/session`,
         token,
         callbacks: {
-          onStatus: () => setDownloadingPublication(operationId),
+          onStatus: () => {
+            setDownloadingPublication(operationId);
+            setDocumentStatus({
+              operationId,
+              message: "Aguardando resposta do tribunal…",
+            });
+          },
           onChallenge: (challenge) => {
             setDownloadingPublication("");
             setPublicationChallenge({
@@ -333,6 +380,10 @@ export function App({
               imageDataUrl: challenge.imageDataUrl,
               expiresAt: challenge.expiresAt,
               answer: "",
+            });
+            setDocumentStatus({
+              operationId,
+              message: "Aguardando o código de segurança.",
             });
             if (challenge.rejected) {
               setError("O código não foi aceito. Tente novamente com a nova imagem.");
@@ -342,12 +393,17 @@ export function App({
             saveFile(document.blob, document.fileName);
             setPublicationChallenge(undefined);
             setDownloadingPublication("");
+            setDocumentStatus({
+              operationId,
+              message: "Download concluído.",
+            });
             documentSession.current = undefined;
           },
           onError: (code) => {
             setError(documentSessionError(code));
             setPublicationChallenge(undefined);
             setDownloadingPublication("");
+            setDocumentStatus(undefined);
             documentSession.current = undefined;
           },
         },
@@ -359,16 +415,26 @@ export function App({
           : "Não foi possível abrir a publicação.",
       );
       setDownloadingPublication("");
+      setDocumentStatus(undefined);
     }
   };
 
   const completePublicationChallenge = (event: FormEvent) => {
     event.preventDefault();
     if (!authSession || !publicationChallenge) return;
+    const answer = publicationChallenge.answer.trim();
+    if (!answer) {
+      setError("Digite o código de segurança exibido pelo tribunal.");
+      return;
+    }
     setDownloadingPublication(publicationChallenge.operationId);
+    setDocumentStatus({
+      operationId: publicationChallenge.operationId,
+      message: "Validando o código no tribunal…",
+    });
     setError("");
     try {
-      documentSession.current?.answer(publicationChallenge.answer);
+      documentSession.current?.answer(answer);
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -376,6 +442,10 @@ export function App({
           : "Não foi possível validar o código de segurança.",
       );
       setDownloadingPublication("");
+      setDocumentStatus({
+        operationId: publicationChallenge.operationId,
+        message: "Revise o código e tente novamente.",
+      });
     }
   };
 
@@ -499,6 +569,24 @@ export function App({
                           : profile.subjectType.toUpperCase()}
                       </span>
                       <strong>{profile.displayLabel}</strong>
+                      <small>
+                        {profile.processCount === 1
+                          ? "1 processo encontrado"
+                          : `${profile.processCount} processos encontrados`}
+                      </small>
+                      {profile.processSummary.length > 0 ? (
+                        <ul className="profile-process-summary">
+                          {profile.processSummary.map((process) => (
+                            <li key={`${profile.subjectId}:${process.cnjNumber}`}>
+                              {process.cnjNumber} · {process.tribunal}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <small className="profile-awaiting">
+                          Aguardando a primeira atualização.
+                        </small>
+                      )}
                     </div>
                     <button
                       className="profile-archive"
@@ -536,12 +624,58 @@ export function App({
               profileCount={profiles.filter((profile) => profile.status === "active").length}
               profilesLoading={profilesLoading}
             />
+            <BillingPanel fetcher={fetcher} session={authSession} />
             <AccountDataControls
               fetcher={fetcher}
               session={authSession}
               saveFile={saveFile}
             />
           </>
+        ) : null}
+
+        {searchHistory.length > 0 ? (
+          <section className="search-history" aria-labelledby="search-history-title">
+            <div className="search-history-heading">
+              <div>
+                <span className="eyebrow">Resultados agrupados</span>
+                <h2 id="search-history-title">Consultas desta sessão</h2>
+              </div>
+              <span>{searchHistory.length}</span>
+            </div>
+            <ul>
+              {searchHistory.map((search) => (
+                <li key={search.target.id}>
+                  <button
+                    type="button"
+                    aria-label={`Abrir consulta de ${search.target.displayValue}`}
+                    onClick={() => {
+                      setResult(search);
+                      setSelectedProcess(undefined);
+                    }}
+                  >
+                    <span className="search-history-main">
+                      <strong>{search.target.displayValue}</strong>
+                      <span>
+                        {search.summary.processes === 1
+                          ? "1 processo"
+                          : `${search.summary.processes} processos`}
+                      </span>
+                    </span>
+                    <span className="search-history-summary">
+                      {search.processes.length > 0
+                        ? search.processes
+                            .slice(0, 3)
+                            .map((process) =>
+                              `${process.cnjNumber} · ${process.tribunal ?? "Tribunal não informado"}`
+                            )
+                            .join(" | ")
+                        : "Nenhum processo agrupável nesta consulta."}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
         ) : null}
 
         {result && (
@@ -560,6 +694,20 @@ export function App({
             {result.warnings.map((warning) => (
               <p className="warning-banner" key={warning}>{warning}</p>
             ))}
+
+            <aside className="process-radar" aria-labelledby="process-radar-title">
+              <div>
+                <span className="eyebrow">Radar Processual</span>
+                <h3 id="process-radar-title">O que esta consulta conseguiu enxergar</h3>
+                <p>Indícios da busca atual, não uma certidão negativa nem confirmação de identidade.</p>
+              </div>
+              <dl>
+                <div><dt>Processos agrupados</dt><dd>{result.summary.processes}</dd></div>
+                <div><dt>Tribunais identificados</dt><dd>{new Set(result.processes.map((item) => item.tribunal).filter(Boolean)).size}</dd></div>
+                <div><dt>Confiança da estratégia</dt><dd>{result.source.confidence === "medium" ? "Moderada" : "Experimental"}</dd></div>
+                <div><dt>Publicações sem processo</dt><dd>{result.summary.ungroupedPublications}</dd></div>
+              </dl>
+            </aside>
 
             {result.processes.length === 0 ? (
               <div className="empty-result">
@@ -591,6 +739,7 @@ export function App({
                           setSelectedProcess(undefined);
                           setPublicationChallenge(undefined);
                           setDownloadingPublication("");
+                          setDocumentStatus(undefined);
                         }}
                       >
                         Fechar detalhe
@@ -623,6 +772,14 @@ export function App({
                                     ? "Abrindo pelo Brasil…"
                                     : "Baixar publicação pelo proxy"}
                                 </button>
+                                {documentStatus?.operationId === operationId ? (
+                                  <p
+                                    className="document-session-status"
+                                    aria-live="polite"
+                                  >
+                                    {documentStatus.message}
+                                  </p>
+                                ) : null}
                                 {publicationChallenge?.operationId === operationId ? (
                                   <form
                                     className="document-challenge"
@@ -684,6 +841,7 @@ export function App({
                                             documentSession.current = undefined;
                                             setPublicationChallenge(undefined);
                                             setDownloadingPublication("");
+                                            setDocumentStatus(undefined);
                                           }
                                         }
                                       >

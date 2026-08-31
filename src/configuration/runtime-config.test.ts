@@ -11,6 +11,7 @@ describe("runtime configuration", () => {
 
     expect(readRuntimeConfig(environment)).toEqual({
       authenticationMode: "disabled",
+      billing: { mode: "disabled" },
       browserRendererAuthenticationMode: "google-id-token",
       documentDelivery: { mode: "disabled" },
       foundation: { mode: "disabled" },
@@ -45,6 +46,7 @@ describe("runtime configuration", () => {
       }),
     ).toEqual({
       authenticationMode: "firebase",
+      billing: { mode: "disabled" },
       browserRendererAuthenticationMode: "disabled",
       browserRendererUrl: "http://browser-renderer:8080",
       djenSearchProxyUrl:
@@ -70,6 +72,133 @@ describe("runtime configuration", () => {
       },
       port: 9090,
     });
+  });
+
+  it("parses Stripe test billing without accepting live credentials", () => {
+    const config = readRuntimeConfig({
+      BILLING_MODE: "stripe-test",
+      APPLICATION_PUBLIC_URL: "https://validation.meu-processo.example",
+      BILLING_WEBHOOK_DATABASE_URL:
+        "postgresql://app_billing_webhook:password@database/meu_processo?sslmode=require",
+      STRIPE_SECRET_KEY: "sk_test_1234567890abcdefghijklmnop",
+      STRIPE_WEBHOOK_SECRET: "whsec_1234567890abcdefghijklmnop",
+      STRIPE_PERSON_PRICE_ID: "price_12345678ABC",
+      FOUNDATION_MODE: "postgres",
+      DATABASE_URL: "postgresql://runtime:password@database/meu_processo",
+      IDENTIFIER_ACTIVE_KEY_VERSION: "v1",
+      IDENTIFIER_ENCRYPTION_KEYS_JSON:
+        '{"v1":"AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"}',
+      IDENTIFIER_BLIND_INDEX_VERSION: "v1",
+      IDENTIFIER_BLIND_INDEX_KEY_BASE64URL:
+        "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM",
+    });
+    expect(config.billing).toEqual({
+      mode: "stripe-test",
+      applicationUrl: "https://validation.meu-processo.example",
+      webhookDatabaseUrl:
+        "postgresql://app_billing_webhook:password@database/meu_processo?sslmode=require",
+      stripeSecretKey: "sk_test_1234567890abcdefghijklmnop",
+      stripeWebhookSecret: "whsec_1234567890abcdefghijklmnop",
+      personPriceId: "price_12345678ABC",
+    });
+  });
+
+  it("parses the cost-bounded webhook secret bundle used by Cloud Run", () => {
+    const config = readRuntimeConfig({
+      BILLING_MODE: "stripe-test",
+      APPLICATION_PUBLIC_URL: "https://validation.meu-processo.example",
+      BILLING_WEBHOOK_CONFIG_JSON: JSON.stringify({
+        databaseUrl:
+          "postgresql://app_billing_webhook:password@database/meu_processo?sslmode=require",
+        signingSecret: "whsec_1234567890abcdefghijklmnop",
+      }),
+      STRIPE_SECRET_KEY: "sk_test_1234567890abcdefghijklmnop",
+      STRIPE_PERSON_PRICE_ID: "price_12345678ABC",
+      FOUNDATION_MODE: "postgres",
+      DATABASE_URL: "postgresql://runtime:password@database/meu_processo",
+      IDENTIFIER_ACTIVE_KEY_VERSION: "v1",
+      IDENTIFIER_ENCRYPTION_KEYS_JSON:
+        '{"v1":"AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"}',
+      IDENTIFIER_BLIND_INDEX_VERSION: "v1",
+      IDENTIFIER_BLIND_INDEX_KEY_BASE64URL:
+        "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM",
+    });
+    expect(config.billing).toMatchObject({
+      mode: "stripe-test",
+      webhookDatabaseUrl:
+        "postgresql://app_billing_webhook:password@database/meu_processo?sslmode=require",
+      stripeWebhookSecret: "whsec_1234567890abcdefghijklmnop",
+    });
+  });
+
+  it.each([
+    [{ STRIPE_SECRET_KEY: "sk_test_1234567890abcdefghijklmnop" }, "BILLING_MODE"],
+    [{ BILLING_MODE: "stripe-live" }, "BILLING_MODE"],
+    [{ BILLING_MODE: "stripe-test" }, "APPLICATION_PUBLIC_URL"],
+    [{ BILLING_MODE: "stripe-test", APPLICATION_PUBLIC_URL: "http://public.example" }, "APPLICATION_PUBLIC_URL"],
+    [{ BILLING_MODE: "stripe-test", APPLICATION_PUBLIC_URL: "not-a-url" }, "APPLICATION_PUBLIC_URL"],
+    [{
+      BILLING_MODE: "stripe-test", APPLICATION_PUBLIC_URL: "http://127.0.0.1:18080",
+      BILLING_WEBHOOK_CONFIG_JSON: "not-json",
+      STRIPE_SECRET_KEY: "sk_test_1234567890abcdefghijklmnop",
+      STRIPE_PERSON_PRICE_ID: "price_12345678ABC",
+    }, "BILLING_WEBHOOK_CONFIG_JSON"],
+    [{
+      BILLING_MODE: "stripe-test", APPLICATION_PUBLIC_URL: "http://127.0.0.1:18080",
+      BILLING_WEBHOOK_CONFIG_JSON: "[]",
+      STRIPE_SECRET_KEY: "sk_test_1234567890abcdefghijklmnop",
+      STRIPE_PERSON_PRICE_ID: "price_12345678ABC",
+    }, "BILLING_WEBHOOK_CONFIG_JSON"],
+    [{
+      BILLING_MODE: "stripe-test", APPLICATION_PUBLIC_URL: "http://127.0.0.1:18080",
+      BILLING_WEBHOOK_CONFIG_JSON: JSON.stringify({
+        databaseUrl: 7,
+        signingSecret: "whsec_1234567890abcdefghijklmnop",
+      }),
+      STRIPE_SECRET_KEY: "sk_test_1234567890abcdefghijklmnop",
+      STRIPE_PERSON_PRICE_ID: "price_12345678ABC",
+    }, "BILLING_WEBHOOK_CONFIG_JSON"],
+    [{
+      BILLING_MODE: "stripe-test", APPLICATION_PUBLIC_URL: "http://127.0.0.1:18080",
+      BILLING_WEBHOOK_CONFIG_JSON: '{"databaseUrl":"postgresql://webhook:password@database/app"}',
+      STRIPE_SECRET_KEY: "sk_test_1234567890abcdefghijklmnop",
+      STRIPE_PERSON_PRICE_ID: "price_12345678ABC",
+    }, "BILLING_WEBHOOK_CONFIG_JSON"],
+    [{
+      BILLING_MODE: "stripe-test", APPLICATION_PUBLIC_URL: "http://127.0.0.1:18080",
+      BILLING_WEBHOOK_CONFIG_JSON: JSON.stringify({
+        databaseUrl: "postgresql://webhook:password@database/app",
+        signingSecret: "whsec_1234567890abcdefghijklmnop",
+      }),
+      BILLING_WEBHOOK_DATABASE_URL: "postgresql://webhook:password@database/app",
+      STRIPE_SECRET_KEY: "sk_test_1234567890abcdefghijklmnop",
+      STRIPE_PERSON_PRICE_ID: "price_12345678ABC",
+    }, "BILLING_WEBHOOK_CONFIG_JSON"],
+    [{
+      BILLING_MODE: "stripe-test", APPLICATION_PUBLIC_URL: "http://127.0.0.1:18080",
+      BILLING_WEBHOOK_DATABASE_URL: "postgresql://webhook:password@database/app",
+      STRIPE_SECRET_KEY: "sk_live_invalid",
+      STRIPE_WEBHOOK_SECRET: "whsec_1234567890abcdefghijklmnop",
+      STRIPE_PERSON_PRICE_ID: "price_12345678ABC",
+    }, "STRIPE_SECRET_KEY"],
+    [{
+      BILLING_MODE: "stripe-test", APPLICATION_PUBLIC_URL: "http://127.0.0.1:18080",
+      BILLING_WEBHOOK_DATABASE_URL: "postgresql://webhook:password@database/app",
+      STRIPE_SECRET_KEY: "sk_test_1234567890abcdefghijklmnop",
+      STRIPE_WEBHOOK_SECRET: "bad",
+      STRIPE_PERSON_PRICE_ID: "price_12345678ABC",
+    }, "STRIPE_WEBHOOK_SECRET"],
+    [{
+      BILLING_MODE: "stripe-test", APPLICATION_PUBLIC_URL: "http://127.0.0.1:18080",
+      BILLING_WEBHOOK_DATABASE_URL: "postgresql://webhook:password@database/app",
+      STRIPE_SECRET_KEY: "sk_test_1234567890abcdefghijklmnop",
+      STRIPE_WEBHOOK_SECRET: "whsec_1234567890abcdefghijklmnop",
+      STRIPE_PERSON_PRICE_ID: "bad",
+    }, "STRIPE_PERSON_PRICE_ID"],
+  ])("rejects unsafe billing configuration %#", (environment, field) => {
+    expect(() => readRuntimeConfig(environment)).toThrow(
+      new RuntimeConfigurationError(field),
+    );
   });
 
   it("parses an explicit GCS document backend without credentials", () => {

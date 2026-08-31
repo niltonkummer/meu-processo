@@ -44,6 +44,28 @@ O materializador possui `objectCreator` e `objectViewer`: cria objetos novos com
 precondition e relê apenas para provar idempotência quando o locator
 determinístico já existe. Ele não recebe permissão de apagar ou sobrescrever.
 
+## Billing comercial em test mode
+
+O billing também é opt-in e permanece ausente nos defaults. O gate
+`PLAN_ONLY_NO_APPLY` acrescenta exatamente dois containers regionais de segredo:
+
+- `stripe_secret_key`, contendo somente a chave `sk_test_...`;
+- `billing_webhook_config`, contendo JSON com `signingSecret` e a URL PostgreSQL
+  da role exclusiva `app_billing_webhook_login`.
+
+O agrupamento do segundo secret mantém o limite aprovado de duas versões sem
+reutilizar a credencial do runtime. Infisical continua sendo a fonte de verdade;
+Terraform cria containers, IAM e referências, mas nunca valores ou versões.
+Cloud Run recebe versões numéricas fixadas — `latest` é recusado —, hard-code de
+`BILLING_MODE=stripe-test`, Price ID allowlisted e origem HTTPS explícita.
+
+Para revisar o desenho sem ativá-lo, use os valores sintéticos de
+`infracost.tfvars`. Um rollout futuro precisa projetar os dois valores do
+Infisical, informar as versões criadas e trocar o acknowledgement para
+`APPROVED_VALIDATION_ROLLOUT_0042`; esse token é recusado fora de validation.
+Isso não autoriza cobrança live nem substitui o gate separado de ativação do
+runtime PostgreSQL já planejado.
+
 `infracost.tfvars` contém somente valores sintéticos, não é carregado
 automaticamente pelo Terraform e nunca deve ser usado em `apply`. A avaliação
 vigente para rollout é
@@ -79,6 +101,30 @@ vulnerabilidades, publica com tag imutável e aplica a troca de revisão por
 Terraform. O rollout público é separado: primeiro aplique a imagem com
 `public_access_enabled=false`, execute os smokes e só depois planeje/aplique
 `public_access_enabled=true`.
+
+## Identidade keyless do GitHub
+
+Terraform declara um Workload Identity Pool/Provider e a service account
+`meu-processo-deploy`. O provider aceita exclusivamente tokens cujo subject é
+`repo:niltonkummer/meu-processo:environment:validation` e também confirma os IDs
+numéricos imutáveis do repositório e do proprietário. Nenhuma chave JSON é
+criada.
+
+O primeiro bootstrap é uma exceção única: a identidade administrativa já
+autenticada aplica um plano salvo, revisado e sem destruições. Depois disso,
+configure no GitHub Environment `validation` somente estas variables:
+
+- `GCP_TF_STATE_BUCKET`, com o bucket do state remoto;
+- `GCP_WORKLOAD_IDENTITY_PROVIDER`, com o output homônimo do Terraform;
+- `GCP_DEPLOY_SERVICE_ACCOUNT`, com o output homônimo do Terraform;
+- `FIREBASE_BROWSER_KEY`, `FIREBASE_AUTH_DOMAIN`, `FIREBASE_PROJECT_ID` e
+  `FIREBASE_APP_ID`, obtidas do output sensível `firebase_web_config` sem
+  registrá-lo em logs.
+
+O workflow recebe `id-token: write`, autentica por OIDC e publica apenas o
+commit selecionado. Credenciais temporárias `gha-creds-*.json` são ignoradas
+pelo Git e pelo contexto Docker. Novos applies de `validation` devem ocorrer
+pela pipeline, salvo incidente documentado e explicitamente autorizado.
 
 ## Validação local
 

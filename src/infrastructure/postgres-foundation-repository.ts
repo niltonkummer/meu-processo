@@ -3,6 +3,7 @@ import type { Pool, PoolClient, QueryResultRow } from "pg";
 import {
   type FoundationRepository,
   type MonitoredSubject,
+  type MonitoredSubjectProcessSummary,
   type MonitoredSubjectInput,
   type MonitoredSubjectUpdate,
   type MonitoringTarget,
@@ -32,6 +33,8 @@ interface SubjectRow extends QueryResultRow {
   status: MonitoredSubject["status"];
   version: string;
   archived_at: Date | null;
+  process_count?: number;
+  process_summary?: unknown;
 }
 
 interface TargetRow extends QueryResultRow {
@@ -60,6 +63,40 @@ interface TargetSourceStateRow extends QueryResultRow {
   version: string;
 }
 
+const parseProcessSummary = (
+  value: unknown,
+): readonly MonitoredSubjectProcessSummary[] => {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 3) {
+    throw new RepositoryValidationError();
+  }
+  return value.map((item) => {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) {
+      throw new RepositoryValidationError();
+    }
+    const record = item as Record<string, unknown>;
+    const lastActivityAt = new Date(String(record.lastActivityAt));
+    if (
+      Object.keys(record).length !== 3 ||
+      typeof record.cnjNumber !== "string" ||
+      !/^[0-9]{7}-[0-9]{2}\.[0-9]{4}\.[0-9]\.[0-9]{2}\.[0-9]{4}$/u.test(
+        record.cnjNumber,
+      ) ||
+      typeof record.tribunal !== "string" ||
+      !/^[A-Z][A-Z0-9-]{1,19}$/u.test(record.tribunal) ||
+      typeof record.lastActivityAt !== "string" ||
+      Number.isNaN(lastActivityAt.getTime())
+    ) {
+      throw new RepositoryValidationError();
+    }
+    return {
+      cnjNumber: record.cnjNumber,
+      tribunal: record.tribunal,
+      lastActivityAt,
+    };
+  });
+};
+
 const mapSubject = (row: SubjectRow): MonitoredSubject => ({
   tenantId: row.tenant_id,
   subjectId: row.subject_id,
@@ -68,6 +105,8 @@ const mapSubject = (row: SubjectRow): MonitoredSubject => ({
   status: row.status,
   version: Number(row.version),
   archivedAt: row.archived_at,
+  processCount: row.process_count ?? 0,
+  processSummary: parseProcessSummary(row.process_summary),
 });
 
 const mapTarget = (row: TargetRow): MonitoringTarget => ({
@@ -275,15 +314,13 @@ export class PostgresFoundationRepository implements FoundationRepository {
            display_label,
            status,
            version,
-           archived_at
-         from app_private.monitored_subjects
-         where tenant_id = $1::uuid
-           and ($2::uuid is null or subject_id > $2::uuid)
-           and ($4::boolean or status = 'active')
-         order by subject_id
-         limit $3`,
+           archived_at,
+           process_count,
+           process_summary
+         from app_private.list_monitored_subject_summaries(
+           $1::uuid, $2::integer, $3::boolean
+         )`,
         [
-          context.tenantId,
           page.afterSubjectId ?? null,
           page.limit + 1,
           page.includeInactive === true,

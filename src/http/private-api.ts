@@ -17,6 +17,8 @@ import type { AssistedRendererConnector } from "../application/assisted-document
 import type { DjenClient } from "../application/types.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { AccountDataControlsService } from "../application/account-data-controls.js";
+import type { PersonalBillingService } from "../application/personal-billing.js";
+import type { BillingWebhook } from "../application/billing-webhook.js";
 
 export interface PrivateApiDependencies {
   readonly client: DjenClient;
@@ -36,6 +38,8 @@ export interface PrivateApiDependencies {
   readonly documentMaterializationRequests?:
     PersonalDocumentMaterializationRequestService | undefined;
   readonly accountDataControls?: AccountDataControlsService | undefined;
+  readonly billing?: PersonalBillingService | undefined;
+  readonly billingWebhook?: BillingWebhook | undefined;
 }
 
 export interface AppServerOptions extends PrivateApiDependencies {

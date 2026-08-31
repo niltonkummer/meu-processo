@@ -46,6 +46,7 @@ describe("HTTP handler boundaries", () => {
   it("keeps route precedence explicit and stable", () => {
     expect(privateRequestHandlers.map((handler) => handler.name)).toEqual([
       "handlePrivateSession",
+      "handlePrivateBilling",
       "handleAccountData",
       "handlePublicationProxy",
       "handleMonitoringProfiles",

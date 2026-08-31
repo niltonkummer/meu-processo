@@ -20,7 +20,8 @@ import {
   type HostResolver,
 } from "./secure-document-client.js";
 
-const OUTCOME_TIMEOUT_MS = 15_000;
+const NAVIGATION_TIMEOUT_MS = 45_000;
+const OUTCOME_TIMEOUT_MS = 30_000;
 const POLL_INTERVAL_MS = 200;
 const CHALLENGE_TTL_MS = 2 * 60 * 1_000;
 const PNG_SIGNATURE = Uint8Array.from([
@@ -142,7 +143,7 @@ export class PlaywrightTjrsDriver implements BrowserChallengeDriver {
 const delay = (milliseconds: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 
-const challengeDiscoveryScript = `(() => {
+export const challengeDiscoveryScript = `(() => {
   const visible = (element) => {
     const rect = element.getBoundingClientRect();
     const style = getComputedStyle(element);
@@ -150,12 +151,30 @@ const challengeDiscoveryScript = `(() => {
   };
   const fields = [...document.querySelectorAll('input:not([type]), input[type="text"], input[type="search"]')]
     .filter(visible);
-  const candidates = [...document.querySelectorAll('img, canvas')]
+  const candidates = [...document.querySelectorAll('img, canvas, [data-url], [style*="background"]')]
     .filter(visible)
     .map((element) => {
       const rect = element.getBoundingClientRect();
-      const marker = [element.id, element.className, element.getAttribute('src'), element.getAttribute('alt')]
+      const marker = [
+        element.id,
+        String(element.className || ''),
+        element.getAttribute('src'),
+        element.getAttribute('alt'),
+        element.getAttribute('title'),
+        element.getAttribute('aria-label'),
+        element.getAttribute('data-url'),
+        element.getAttribute('role')
+      ]
         .filter(Boolean).join(' ').toLowerCase();
+      if (/audio|speaker|sound|volume|ouvir|som\\b/.test(marker)) return null;
+      const tag = element.tagName.toLowerCase();
+      const style = getComputedStyle(element);
+      const ready = tag === 'img'
+        ? Boolean(element.currentSrc || element.getAttribute('src') || element.getAttribute('data-url')) && element.complete && element.naturalWidth > 0 && element.naturalHeight > 0
+        : tag === 'canvas'
+          ? element.width > 0 && element.height > 0
+          : Boolean(element.getAttribute('data-url')) || (style.backgroundImage && style.backgroundImage !== 'none');
+      if (!ready) return null;
       const nearestField = fields
         .map((field) => {
           const fieldRect = field.getBoundingClientRect();
@@ -171,12 +190,13 @@ const challengeDiscoveryScript = `(() => {
       const proximityScore = nearestField && nearestField.distance < 500 ? Math.max(0, 50 - nearestField.distance / 10) : -50;
       return { element, field: nearestField?.field, score: areaScore + markerScore + fieldScore + proximityScore };
     })
-    .filter((candidate) => candidate.field && candidate.score > 20)
+    .filter((candidate) => candidate && candidate.field && candidate.score > 20)
     .sort((left, right) => right.score - left.score);
   const selected = candidates[0];
   if (!selected) return false;
   document.querySelectorAll('[data-meu-processo-challenge]').forEach((element) => element.removeAttribute('data-meu-processo-challenge'));
   document.querySelectorAll('[data-meu-processo-answer]').forEach((element) => element.removeAttribute('data-meu-processo-answer'));
+  document.querySelectorAll('[data-meu-processo-submit]').forEach((element) => element.removeAttribute('data-meu-processo-submit'));
   selected.element.setAttribute('data-meu-processo-challenge', 'true');
   selected.field.setAttribute('data-meu-processo-answer', 'true');
   const form = selected.field.form;
@@ -185,7 +205,7 @@ const challengeDiscoveryScript = `(() => {
   return true;
 })()`;
 
-class PlaywrightBrowserPage implements BrowserPagePort {
+export class PlaywrightBrowserPage implements BrowserPagePort {
   readonly #browser: Browser;
   readonly #context: BrowserContext;
   readonly #page: Page;
@@ -213,8 +233,8 @@ class PlaywrightBrowserPage implements BrowserPagePort {
   async open(sourceUrl: string): Promise<void> {
     try {
       await this.#page.goto(sourceUrl, {
-        waitUntil: "domcontentloaded",
-        timeout: OUTCOME_TIMEOUT_MS,
+        waitUntil: "commit",
+        timeout: NAVIGATION_TIMEOUT_MS,
       });
     } catch (error) {
       if (!this.#pdf && !this.#captureError) throw error;

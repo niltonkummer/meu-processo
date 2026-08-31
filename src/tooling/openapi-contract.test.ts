@@ -177,12 +177,23 @@ describe("OpenAPI contract validation", () => {
     expect(issues).toEqual(expect.arrayContaining([
       expect.stringContaining("summary must be a non-empty string"),
       expect.stringContaining("tags must be a non-empty array"),
-      expect.stringContaining("security must require bearerAuth"),
+      expect.stringContaining("security must require bearerAuth or a required webhook signature"),
       expect.stringContaining("responses must be a non-empty object"),
       expect.stringContaining("duplicate operationId getWidget"),
       expect.stringContaining("path parameter widgetId must be required"),
       expect.stringContaining("path parameter ghost is not present in the path template"),
     ]));
+  });
+
+  it("accepts an explicitly public webhook only with a required signature", () => {
+    const contract = validContract();
+    const operation = at(contract, "paths", "/api/v1/widgets/{widgetId}", "get");
+    operation.security = [];
+    (operation.parameters as JsonObject[]).push({
+      name: "Stripe-Signature", in: "header", required: true,
+      schema: { type: "string", minLength: 1 },
+    });
+    expect(collectOpenApiValidationIssues(contract)).toEqual([]);
   });
 
   it("rejects remote, malformed and unresolved references", () => {
@@ -394,6 +405,9 @@ describe("versioned Meu Processo contract", () => {
       "POST /api/v1/account/deletion-requests (requestAccountDeletion)",
       "GET /api/v1/alerts (listAlerts)",
       "PATCH /api/v1/alerts/{alertId}/read (markAlertRead)",
+      "POST /api/v1/billing/checkout-sessions (createBillingCheckoutSession)",
+      "POST /api/v1/billing/portal-sessions (createBillingPortalSession)",
+      "GET /api/v1/billing/subscription (getBillingSubscription)",
       "GET /api/v1/cases (listCases)",
       "GET /api/v1/cases/{caseId} (getCase)",
       "GET /api/v1/cases/{caseId}/documents (listCaseDocuments)",
@@ -407,6 +421,7 @@ describe("versioned Meu Processo contract", () => {
       "POST /api/v1/processes/{cnjNumber}/communications/{communicationNumber}/document/challenge (completePublicationDocumentChallenge)",
       "POST /api/v1/searches (searchProcesses)",
       "GET /api/v1/session (getSession)",
+      "POST /api/v1/webhooks/stripe (receiveStripeBillingWebhook)",
     ]);
   });
 });

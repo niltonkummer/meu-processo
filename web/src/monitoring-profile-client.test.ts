@@ -15,6 +15,14 @@ const subject = {
   status: "active",
   version: 1,
   archivedAt: null,
+  processCount: 2,
+  processSummary: [
+    {
+      cnjNumber: "0000001-23.2026.8.99.0001",
+      tribunal: "TJEX",
+      lastActivityAt: "2026-08-30T12:00:00.000Z",
+    },
+  ],
 } satisfies MonitoringProfile;
 
 const jsonResponse = (value: unknown, status = 200) =>
@@ -224,6 +232,26 @@ describe("monitoring profile client", () => {
     ["zero version", { ...subject, version: 0 }],
     ["non-string archive date", { ...subject, archivedAt: 12 }],
     ["invalid archive date", { ...subject, archivedAt: "not-a-date" }],
+    ["negative process count", { ...subject, processCount: -1 }],
+    ["fractional process count", { ...subject, processCount: 1.5 }],
+    [
+      "too many process summaries",
+      {
+        ...subject,
+        processSummary: Array.from({ length: 4 }, () =>
+          subject.processSummary[0],
+        ),
+      },
+    ],
+    [
+      "malformed process summary",
+      {
+        ...subject,
+        processSummary: [
+          { ...subject.processSummary[0], cnjNumber: "not-a-cnj" },
+        ],
+      },
+    ],
   ])("rejects an invalid profile: %s", async (_name, invalidProfile) => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
       jsonResponse({ items: [invalidProfile], nextCursor: null }),

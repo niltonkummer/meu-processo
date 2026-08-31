@@ -18,4 +18,6 @@
 \ir /database/migrations/0017_managed_runtime_foundation_grants.sql
 \ir /database/migrations/0018_managed_runtime_operational_grants.sql
 \ir /database/migrations/0019_managed_pgcrypto_schema.sql
+\ir /database/migrations/0021_billing_foundation.sql
+\ir /database/migrations/0022_profile_case_summaries.sql
 \ir /database/local/9999_local_login.sql

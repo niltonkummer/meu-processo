@@ -69,6 +69,8 @@ describe("MonitoringProfiles", () => {
       status: "active",
       version: 1,
       archivedAt: null,
+      processCount: 0,
+      processSummary: [],
     });
     expect(page.items).toEqual([created]);
     expect(archived).toMatchObject({ status: "inactive", version: 2 });

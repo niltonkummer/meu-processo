@@ -34,10 +34,22 @@ export type DocumentDeliveryRuntimeConfig =
       readonly maximumBytes: number;
     };
 
+export type BillingRuntimeConfig =
+  | { readonly mode: "disabled" }
+  | {
+      readonly mode: "stripe-test";
+      readonly applicationUrl: string;
+      readonly webhookDatabaseUrl: string;
+      readonly stripeSecretKey: string;
+      readonly stripeWebhookSecret: string;
+      readonly personPriceId: string;
+    };
+
 export interface RuntimeConfig {
   readonly authenticationMode: AuthenticationMode;
   readonly browserRendererAuthenticationMode: BrowserRendererAuthenticationMode;
   readonly browserRendererUrl?: string;
+  readonly billing: BillingRuntimeConfig;
   readonly djenSearchProxyUrl?: string;
   readonly documentDelivery: DocumentDeliveryRuntimeConfig;
   readonly foundation: FoundationRuntimeConfig;
@@ -111,8 +123,7 @@ const readKey = (field: string, value: unknown): Buffer => {
   return key;
 };
 
-const readDatabaseUrl = (value: string | undefined): string => {
-  const field = "DATABASE_URL";
+const readDatabaseUrl = (field: string, value: string | undefined): string => {
   const raw = required(field, value);
   try {
     const url = new URL(raw);
@@ -188,7 +199,7 @@ const readFoundation = (environment: Environment): FoundationRuntimeConfig => {
     return { mode };
   }
 
-  const databaseUrl = readDatabaseUrl(environment.DATABASE_URL);
+  const databaseUrl = readDatabaseUrl("DATABASE_URL", environment.DATABASE_URL);
   const activeKeyVersion = readVersion(
     "IDENTIFIER_ACTIVE_KEY_VERSION",
     environment.IDENTIFIER_ACTIVE_KEY_VERSION,
@@ -218,6 +229,90 @@ const readFoundation = (environment: Environment): FoundationRuntimeConfig => {
       "IDENTIFIER_BLIND_INDEX_KEY_BASE64URL",
       environment.IDENTIFIER_BLIND_INDEX_KEY_BASE64URL,
     ),
+  };
+};
+
+const readBilling = (environment: Environment): BillingRuntimeConfig => {
+  const mode = readEnum(
+    "BILLING_MODE", environment.BILLING_MODE, "disabled",
+    ["disabled", "stripe-test"] as const,
+  );
+  const fields = [
+    "APPLICATION_PUBLIC_URL",
+    "BILLING_WEBHOOK_CONFIG_JSON",
+    "BILLING_WEBHOOK_DATABASE_URL",
+    "STRIPE_SECRET_KEY",
+    "STRIPE_WEBHOOK_SECRET",
+    "STRIPE_PERSON_PRICE_ID",
+  ] as const;
+  if (mode === "disabled") {
+    if (fields.some((field) => Boolean(environment[field]))) {
+      throw new RuntimeConfigurationError("BILLING_MODE");
+    }
+    return { mode };
+  }
+  const applicationUrl = required(
+    "APPLICATION_PUBLIC_URL", environment.APPLICATION_PUBLIC_URL,
+  );
+  try {
+    const url = new URL(applicationUrl);
+    const local = ["localhost", "127.0.0.1"].includes(url.hostname) &&
+      url.protocol === "http:";
+    if (
+      (!local && url.protocol !== "https:") || url.username || url.password ||
+      url.pathname !== "/" || url.search || url.hash
+    ) throw new RuntimeConfigurationError("APPLICATION_PUBLIC_URL");
+  } catch (error) {
+    if (error instanceof RuntimeConfigurationError) throw error;
+    throw new RuntimeConfigurationError("APPLICATION_PUBLIC_URL");
+  }
+  const stripeSecretKey = required("STRIPE_SECRET_KEY", environment.STRIPE_SECRET_KEY);
+  let webhookDatabaseUrl = environment.BILLING_WEBHOOK_DATABASE_URL;
+  let stripeWebhookSecret = environment.STRIPE_WEBHOOK_SECRET;
+  if (environment.BILLING_WEBHOOK_CONFIG_JSON) {
+    if (webhookDatabaseUrl || stripeWebhookSecret) {
+      throw new RuntimeConfigurationError("BILLING_WEBHOOK_CONFIG_JSON");
+    }
+    try {
+      const parsed: unknown = JSON.parse(environment.BILLING_WEBHOOK_CONFIG_JSON);
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        throw new Error("invalid bundle");
+      }
+      const bundle = parsed as Readonly<Record<string, unknown>>;
+      const keys = Object.keys(bundle).sort();
+      if (
+        keys.join(",") !== "databaseUrl,signingSecret" ||
+        typeof bundle.databaseUrl !== "string" ||
+        typeof bundle.signingSecret !== "string"
+      ) throw new Error("invalid bundle");
+      webhookDatabaseUrl = bundle.databaseUrl;
+      stripeWebhookSecret = bundle.signingSecret;
+    } catch {
+      throw new RuntimeConfigurationError("BILLING_WEBHOOK_CONFIG_JSON");
+    }
+  }
+  stripeWebhookSecret = required("STRIPE_WEBHOOK_SECRET", stripeWebhookSecret);
+  const personPriceId = required(
+    "STRIPE_PERSON_PRICE_ID", environment.STRIPE_PERSON_PRICE_ID,
+  );
+  if (!/^sk_test_[A-Za-z0-9]{24,255}$/.test(stripeSecretKey)) {
+    throw new RuntimeConfigurationError("STRIPE_SECRET_KEY");
+  }
+  if (!/^whsec_[A-Za-z0-9]{24,255}$/.test(stripeWebhookSecret)) {
+    throw new RuntimeConfigurationError("STRIPE_WEBHOOK_SECRET");
+  }
+  if (!/^price_[A-Za-z0-9]{8,255}$/.test(personPriceId)) {
+    throw new RuntimeConfigurationError("STRIPE_PERSON_PRICE_ID");
+  }
+  return {
+    mode,
+    applicationUrl,
+    webhookDatabaseUrl: readDatabaseUrl(
+      "BILLING_WEBHOOK_DATABASE_URL", webhookDatabaseUrl,
+    ),
+    stripeSecretKey,
+    stripeWebhookSecret,
+    personPriceId,
   };
 };
 
@@ -320,7 +415,11 @@ export const readRuntimeConfig = (environment: Environment): RuntimeConfig => {
 
   const foundation = readFoundation(environment);
   const documentDelivery = readDocumentDelivery(environment);
+  const billing = readBilling(environment);
   if (documentDelivery.mode !== "disabled" && foundation.mode !== "postgres") {
+    throw new RuntimeConfigurationError("FOUNDATION_MODE");
+  }
+  if (billing.mode !== "disabled" && foundation.mode !== "postgres") {
     throw new RuntimeConfigurationError("FOUNDATION_MODE");
   }
   return {
@@ -338,6 +437,7 @@ export const readRuntimeConfig = (environment: Environment): RuntimeConfig => {
     ),
     ...(browserRendererUrl ? { browserRendererUrl } : {}),
     ...(djenSearchProxyUrl ? { djenSearchProxyUrl } : {}),
+    billing,
     documentDelivery,
     foundation,
     port: readPort(environment.PORT),

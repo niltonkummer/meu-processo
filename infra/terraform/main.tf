@@ -13,9 +13,11 @@ locals {
     "cloudkms.googleapis.com",
     "firebase.googleapis.com",
     "iam.googleapis.com",
+    "iamcredentials.googleapis.com",
     "identitytoolkit.googleapis.com",
     "run.googleapis.com",
     "secretmanager.googleapis.com",
+    "sts.googleapis.com",
     "storage.googleapis.com",
   ])
 }
@@ -243,6 +245,42 @@ resource "google_cloud_run_v2_service" "app" {
         value = "google-id-token"
       }
 
+      dynamic "env" {
+        for_each = var.commercial_billing_enabled ? {
+          APPLICATION_PUBLIC_URL = var.commercial_application_public_url
+          BILLING_MODE           = "stripe-test"
+          STRIPE_PERSON_PRICE_ID = var.stripe_person_price_id
+        } : {}
+
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
+
+      dynamic "env" {
+        for_each = var.commercial_billing_enabled ? {
+          BILLING_WEBHOOK_CONFIG_JSON = {
+            secret_key = "billing_webhook_config"
+            version    = var.billing_webhook_config_secret_version
+          }
+          STRIPE_SECRET_KEY = {
+            secret_key = "stripe_secret_key"
+            version    = var.stripe_secret_key_version
+          }
+        } : {}
+
+        content {
+          name = env.key
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.managed[env.value.secret_key].secret_id
+              version = env.value.version
+            }
+          }
+        }
+      }
+
       resources {
         cpu_idle = true
         limits = {
@@ -282,6 +320,7 @@ resource "google_cloud_run_v2_service" "app" {
   depends_on = [
     google_artifact_registry_repository.app,
     google_project_service.required,
+    google_secret_manager_secret_iam_member.managed_accessor,
   ]
 }
 

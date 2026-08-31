@@ -78,6 +78,12 @@ const toHttpMonitoringSubject = (subject: MonitoredSubject) => ({
   status: subject.status,
   version: subject.version,
   archivedAt: subject.archivedAt,
+  processCount: subject.processCount,
+  processSummary: subject.processSummary.map((process) => ({
+    cnjNumber: process.cnjNumber,
+    tribunal: process.tribunal,
+    lastActivityAt: process.lastActivityAt.toISOString(),
+  })),
 });
 
 export const handleMonitoringProfiles: PrivateRequestHandler = async (

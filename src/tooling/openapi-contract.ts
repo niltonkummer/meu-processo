@@ -32,6 +32,14 @@ const hasBearerSecurity = (value: unknown): boolean =>
     isObject(requirement) && Array.isArray(requirement.bearerAuth)
   );
 
+const hasWebhookSignatureSecurity = (operation: JsonObject): boolean =>
+  Array.isArray(operation.security) && operation.security.length === 0 &&
+  arrayAt(operation, "parameters").some((parameter) =>
+    isObject(parameter) && parameter.in === "header" &&
+    String(parameter.name).toLowerCase() === "stripe-signature" &&
+    parameter.required === true
+  );
+
 const componentSchemas = (document: JsonObject): JsonObject =>
   objectAt(objectAt(document, "components") ?? {}, "schemas") ?? {};
 
@@ -114,8 +122,8 @@ const validateOperation = (
       operation.tags.some((tag) => !nonEmptyString(tag))) {
     issues.push(`${operationPath}.tags must be a non-empty array of strings`);
   }
-  if (!hasBearerSecurity(operation.security)) {
-    issues.push(`${operationPath}.security must require bearerAuth`);
+  if (!hasBearerSecurity(operation.security) && !hasWebhookSignatureSecurity(operation)) {
+    issues.push(`${operationPath}.security must require bearerAuth or a required webhook signature`);
   }
 
   const templateNames = new Set(

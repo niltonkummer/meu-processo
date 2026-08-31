@@ -87,6 +87,19 @@ const monitoringSubject = {
   status: "active",
   version: 1,
   archivedAt: null,
+  processCount: 2,
+  processSummary: [
+    {
+      cnjNumber: "0000001-23.2026.8.99.0001",
+      tribunal: "TJEX",
+      lastActivityAt: "2026-08-30T12:00:00.000Z",
+    },
+    {
+      cnjNumber: "0000002-23.2026.8.99.0001",
+      tribunal: "TJEX",
+      lastActivityAt: "2026-08-29T12:00:00.000Z",
+    },
+  ],
 };
 
 const monitoringResponse = (url: string): Response | undefined => {
@@ -203,7 +216,12 @@ describe("App", () => {
     expect(screen.getByText("Comunicação 98765")).toBeVisible();
     expect(screen.getByText(/homônimos/i)).toBeVisible();
     expect(screen.getByText("P. E.")).toBeVisible();
-    expect(screen.getAllByText("Pessoa Exemplo")).toHaveLength(1);
+    expect(screen.getByText("1 processo encontrado")).toBeVisible();
+    expect(screen.getAllByText("0000001-23.2026.8.99.0001 · TJEX")).toHaveLength(2);
+    expect(screen.getAllByText("Pessoa Exemplo")).toHaveLength(2);
+    expect(
+      screen.getByRole("heading", { name: "Consultas desta sessão" }),
+    ).toBeVisible();
     expect(storage.length).toBe(0);
   });
 
@@ -357,9 +375,7 @@ describe("App", () => {
     await user.type(screen.getByLabelText("Nome completo"), "Ana");
     await user.click(screen.getByRole("button", { name: "Cadastrar e buscar" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Informe um nome completo.",
-    );
+    expect(await screen.findByText("Informe um nome completo.")).toBeVisible();
     expect(
       fetcher.mock.calls.some(([input]) => requestUrl(input) === "/api/v1/searches"),
     ).toBe(false);
@@ -551,6 +567,35 @@ describe("App", () => {
     );
   });
 
+  it("announces the publication session phase instead of leaving an indefinite action", async () => {
+    const user = userEvent.setup();
+    const fetcher = createAppFetcher();
+    const openSession = vi.fn((input: { callbacks: DocumentSessionCallbacks }) => {
+      queueMicrotask(() => input.callbacks.onStatus("preparing"));
+      return { answer: vi.fn(), close: vi.fn() };
+    });
+    render(
+      <App
+        fetcher={fetcher}
+        storage={storage}
+        loadAuthClient={vi.fn().mockResolvedValue(authClient())}
+        openSession={openSession}
+      />,
+    );
+
+    await signIn(user);
+    await user.type(screen.getByLabelText("Nome completo"), "Pessoa Exemplo");
+    await user.click(screen.getByRole("button", { name: "Cadastrar e buscar" }));
+    await user.click(await screen.findByRole("button", { name: "Abrir processo" }));
+    await user.click(
+      screen.getByRole("button", { name: "Baixar publicação pelo proxy" }),
+    );
+
+    expect(
+      await screen.findByText("Aguardando resposta do tribunal…"),
+    ).toHaveAttribute("aria-live", "polite");
+  });
+
   it("lets the authenticated user complete the tribunal visual challenge", async () => {
     const user = userEvent.setup();
     const saveFile = vi.fn();
@@ -664,9 +709,9 @@ describe("App", () => {
       screen.getByRole("button", { name: "Baixar publicação pelo proxy" }),
     );
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
+    expect(await screen.findByText(
       "A origem não passou pela política de segurança.",
-    );
+    )).toBeVisible();
     expect(
       screen.queryByRole("img", {
         name: "Código de segurança exibido pelo tribunal",

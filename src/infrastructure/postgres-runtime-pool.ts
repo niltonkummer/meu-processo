@@ -5,6 +5,7 @@ export type PostgresRuntimeWorkload =
   | "monitoring-worker"
   | "outbox-dispatcher"
   | "document-worker"
+  | "billing-webhook"
   | "tenant-lifecycle-worker";
 
 export interface PostgresRuntimePoolInput {
@@ -25,6 +26,7 @@ const APPLICATION_NAMES: Readonly<Record<PostgresRuntimeWorkload, string>> = {
   "monitoring-worker": "meu-processo-monitoring-worker",
   "outbox-dispatcher": "meu-processo-outbox-dispatcher",
   "document-worker": "meu-processo-document-worker",
+  "billing-webhook": "meu-processo-billing-webhook",
   "tenant-lifecycle-worker": "meu-processo-tenant-lifecycle-worker",
 };
 
@@ -33,6 +35,7 @@ const POOLER_LOGIN_ROLES: Readonly<Record<PostgresRuntimeWorkload, string>> = {
   "monitoring-worker": "app_worker_login",
   "outbox-dispatcher": "app_dispatcher_login",
   "document-worker": "app_document_worker_login",
+  "billing-webhook": "app_billing_webhook_login",
   "tenant-lifecycle-worker": "app_lifecycle_worker_login",
 };
 
@@ -95,7 +98,7 @@ export const postgresRuntimePoolOptions = (
     max: input.max,
     min: 0,
     application_name: APPLICATION_NAMES[input.workload],
-    allowExitOnIdle: input.workload !== "api",
+    allowExitOnIdle: !["api", "billing-webhook"].includes(input.workload),
     connectionTimeoutMillis: 5_000,
     idleTimeoutMillis: transactionPooler ? 10_000 : 30_000,
     maxLifetimeSeconds: transactionPooler ? 300 : 1_800,

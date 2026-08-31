@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import type { RuntimeConfig } from "../configuration/runtime-config.js";
 import { createAppServer } from "../http/server.js";
 import { composeFoundation } from "./foundation-composition-root.js";
+import { composeBilling } from "./billing-composition-root.js";
 import {
   CloudRunBrowserRendererConnector,
   GoogleCloudIdTokenProvider,
@@ -16,6 +17,7 @@ import { SecureDocumentClient } from "../infrastructure/secure-document-client.j
 export const composeApiServer = (config: RuntimeConfig) => {
   const djenClient = new OfficialDjenClient(fetch, config.djenSearchProxyUrl);
   const foundation = composeFoundation(config.foundation, config.documentDelivery);
+  const billing = composeBilling(config.billing, config.foundation);
   const rendererTokenProvider: IdTokenProvider =
     config.browserRendererAuthenticationMode === "disabled"
       ? { getToken: () => Promise.resolve("local-development-only") }
@@ -50,6 +52,8 @@ export const composeApiServer = (config: RuntimeConfig) => {
     ...(foundation.accountDataControls
       ? { accountDataControls: foundation.accountDataControls }
       : {}),
+    ...(billing.billing ? { billing: billing.billing } : {}),
+    ...(billing.billingWebhook ? { billingWebhook: billing.billingWebhook } : {}),
     ...(config.browserRendererUrl
       ? {
           rendererConnector: new CloudRunBrowserRendererConnector({
@@ -63,7 +67,7 @@ export const composeApiServer = (config: RuntimeConfig) => {
       : {}),
   });
   server.once("close", () => {
-    void foundation.close().catch(() => undefined);
+    void Promise.all([foundation.close(), billing.close()]).catch(() => undefined);
   });
   return server;
 };

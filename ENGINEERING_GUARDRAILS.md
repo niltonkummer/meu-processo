@@ -182,6 +182,26 @@ Para mudanças Terraform:
 
 Novo SKU faturável, `min_instances > 0`, aumento de retenção, tráfego entre regiões, consumo sem limite, aumento mensal superior a US$ 5 ou superior a 20% da base — prevalecendo o menor limite — exige aprovação explícita do proprietário antes da implementação.
 
+### 6.2 Autorização financeira permanente para local e validation
+
+O proprietário do produto autorizou em 31 de agosto de 2026 que mudanças nos
+ambientes `local` e `validation` avancem sem uma nova pergunta quando todas as
+condições abaixo forem atendidas:
+
+- a avaliação de custo versionada demonstra custo total projetado de até
+  US$ 10/mês, incluindo custos fixos, variáveis e externos;
+- consumo, volume, concorrência, retenção e condição de parada permanecem
+  explicitamente limitados;
+- a avaliação recebe status `aprovado para implementação` e referencia esta
+  autorização permanente;
+- não há produção, cobrança real, acesso adicional a dados pessoais, novo risco
+  relevante nem exceção de segurança.
+
+Ultrapassar US$ 10/mês, remover limites, habilitar produção ou cobrança real,
+ampliar o tratamento de dados pessoais ou aceitar risco relevante continua
+exigindo aprovação explícita do proprietário antes da implementação. Esta
+autorização financeira não autoriza commit, push, merge ou deploy.
+
 Após deploy, o custo real MUST ser comparado à estimativa em 7 e 30 dias. Desvio superior a 20% exige investigação, correção da premissa e decisão registrada de manter, otimizar ou reverter.
 
 ## 7. Cloud e ambientes

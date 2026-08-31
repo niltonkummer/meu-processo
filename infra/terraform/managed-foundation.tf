@@ -22,7 +22,7 @@ locals {
     }
   }
 
-  managed_secret_ids = {
+  foundation_secret_ids = {
     dispatcher_database_url = "meu-processo-${var.environment}-dispatcher-database-url"
     document_database_url   = "meu-processo-${var.environment}-document-database-url"
     identifier_blind_index  = "meu-processo-${var.environment}-identifier-blind-index"
@@ -31,6 +31,16 @@ locals {
     monitoring_database_url = "meu-processo-${var.environment}-monitoring-database-url"
     runtime_database_url    = "meu-processo-${var.environment}-runtime-database-url"
   }
+
+  commercial_billing_secret_ids = var.commercial_billing_enabled ? {
+    billing_webhook_config = "meu-processo-${var.environment}-billing-webhook-config"
+    stripe_secret_key      = "meu-processo-${var.environment}-stripe-secret-key"
+  } : {}
+
+  managed_secret_ids = merge(
+    local.foundation_secret_ids,
+    local.commercial_billing_secret_ids,
+  )
 
   managed_secret_access = {
     dispatcher = ["dispatcher_database_url"]
@@ -45,11 +55,14 @@ locals {
       "identifier_keyring",
       "monitoring_database_url",
     ]
-    runtime = [
+    runtime = concat([
       "identifier_blind_index",
       "identifier_keyring",
       "runtime_database_url",
-    ]
+      ], var.commercial_billing_enabled ? [
+      "billing_webhook_config",
+      "stripe_secret_key",
+    ] : [])
   }
 
   managed_secret_bindings = merge([
@@ -84,14 +97,6 @@ locals {
       role     = "roles/storage.objectViewer"
     }
   }
-}
-
-data "google_storage_project_service_account" "managed_foundation" {
-  count = var.managed_foundation_enabled ? 1 : 0
-
-  project = var.project_id
-
-  depends_on = [google_project_service.required["storage.googleapis.com"]]
 }
 
 resource "google_service_account" "managed_workload" {
@@ -131,7 +136,10 @@ resource "google_kms_crypto_key_iam_member" "process_objects_gcs" {
 
   crypto_key_id = google_kms_crypto_key.process_objects[0].id
   role          = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
-  member        = "serviceAccount:${data.google_storage_project_service_account.managed_foundation[0].email_address}"
+  # The GCS service agent has a deterministic Google-managed address. Deriving
+  # it from the project number keeps unrelated API enablement from deferring the
+  # lookup and falsely planning a destructive IAM-member replacement.
+  member = "serviceAccount:service-${data.google_project.current.number}@gs-project-accounts.iam.gserviceaccount.com"
 }
 
 # Cloud Audit Logs replaces legacy GCS server access logs so access events stay
@@ -191,8 +199,8 @@ resource "google_storage_bucket" "process_objects" {
       type = "Delete"
     }
     condition {
-      age        = 7
-      with_state = "ARCHIVED"
+      days_since_noncurrent_time = 7
+      send_age_if_zero           = false
     }
   }
 
@@ -234,6 +242,17 @@ resource "google_secret_manager_secret" "managed" {
 
   lifecycle {
     prevent_destroy = true
+
+    precondition {
+      condition = (
+        !contains(keys(local.commercial_billing_secret_ids), each.key) ||
+        contains([
+          "PLAN_ONLY_NO_APPLY",
+          "APPROVED_VALIDATION_ROLLOUT_0042",
+        ], var.commercial_billing_acknowledgement)
+      )
+      error_message = "Commercial billing secrets require the reviewed plan-only or validation rollout 0042 gate."
+    }
   }
 
   depends_on = [google_project_service.required["secretmanager.googleapis.com"]]

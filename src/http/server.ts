@@ -9,6 +9,7 @@ import type {
   PrivateApiDependencies,
 } from "./private-api.js";
 import { applySecurityHeaders, sendJson } from "./transport.js";
+import { handleBillingWebhook } from "./handlers/billing-webhook.js";
 
 const contentTypes: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
@@ -58,6 +59,8 @@ const handleRequest = async (
     sendJson(response, 200, { ok: true });
     return;
   }
+
+  if (await handleBillingWebhook(request, response, url.pathname, privateApi)) return;
 
   for (const handler of privateRequestHandlers) {
     if (await handler(request, response, url.pathname, privateApi)) return;

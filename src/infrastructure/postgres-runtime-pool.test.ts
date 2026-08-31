@@ -65,6 +65,20 @@ describe("postgres runtime pool policy", () => {
     });
   });
 
+  it("keeps the dedicated webhook pool alive under its restricted login", () => {
+    const options = postgresRuntimePoolOptions({
+      connectionString:
+        "postgresql://app_billing_webhook_login.tbfhcvrdkrerhzqjwyyu:password@" +
+        "aws-0-sa-east-1.pooler.supabase.com:6543/postgres?sslmode=require",
+      max: 2,
+      workload: "billing-webhook",
+    });
+    expect(options).toMatchObject({
+      application_name: "meu-processo-billing-webhook",
+      allowExitOnIdle: false,
+    });
+  });
+
   it.each([
     ["monitoring-worker", "app_worker_login"],
     ["outbox-dispatcher", "app_dispatcher_login"],
