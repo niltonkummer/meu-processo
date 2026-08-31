@@ -2,7 +2,7 @@ locals {
   github_repository    = "niltonkummer/meu-processo"
   github_repository_id = "1350848235"
   github_owner_id      = "823477"
-  github_environment   = "validation"
+  github_subject       = "repo:niltonkummer@823477/meu-processo@1350848235:environment:validation"
 
   deployer_project_roles = {
     apikeys_admin                = "roles/serviceusage.apiKeysAdmin"
@@ -51,6 +51,7 @@ resource "google_iam_workload_identity_pool" "github" {
 }
 
 resource "google_iam_workload_identity_pool_provider" "github" {
+  # checkov:skip=CKV_GCP_125:The GitHub subject template embeds immutable owner/repository IDs with @ delimiters; Checkov 3.3.0 rejects that stronger valid syntax, while tests and the workflow assert the observed subject exactly.
   project                            = var.project_id
   workload_identity_pool_id          = google_iam_workload_identity_pool.github.workload_identity_pool_id
   workload_identity_pool_provider_id = "github"
@@ -65,7 +66,7 @@ resource "google_iam_workload_identity_pool_provider" "github" {
   }
   # Immutable numeric IDs prevent a deleted repository or renamed owner from
   # silently transferring trust to a newly created account with the same name.
-  attribute_condition = "assertion.sub == 'repo:niltonkummer/meu-processo:environment:validation' && assertion.repository == '${local.github_repository}' && assertion.repository_id == '${local.github_repository_id}' && assertion.repository_owner_id == '${local.github_owner_id}'"
+  attribute_condition = "assertion.sub == 'repo:niltonkummer@823477/meu-processo@1350848235:environment:validation' && assertion.repository == '${local.github_repository}' && assertion.repository_id == '${local.github_repository_id}' && assertion.repository_owner_id == '${local.github_owner_id}'"
 
   oidc {
     issuer_uri = "https://token.actions.githubusercontent.com"
@@ -97,7 +98,7 @@ resource "google_service_account" "deployer" {
 resource "google_service_account_iam_member" "github_deployer" {
   service_account_id = google_service_account.deployer.name
   role               = "roles/iam.workloadIdentityUser"
-  member             = "principal://iam.googleapis.com/projects/${data.google_project.current.number}/locations/global/workloadIdentityPools/${google_iam_workload_identity_pool.github.workload_identity_pool_id}/subject/repo:${local.github_repository}:environment:${local.github_environment}"
+  member             = "principal://iam.googleapis.com/projects/${data.google_project.current.number}/locations/global/workloadIdentityPools/${google_iam_workload_identity_pool.github.workload_identity_pool_id}/subject/${local.github_subject}"
 
   depends_on = [google_iam_workload_identity_pool_provider.github]
 }

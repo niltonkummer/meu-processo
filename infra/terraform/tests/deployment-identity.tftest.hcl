@@ -23,7 +23,7 @@ run "github_oidc_is_keyless_and_restricted_to_validation" {
   }
 
   assert {
-    condition     = google_iam_workload_identity_pool_provider.github.attribute_condition == "assertion.sub == 'repo:niltonkummer/meu-processo:environment:validation' && assertion.repository == 'niltonkummer/meu-processo' && assertion.repository_id == '1350848235' && assertion.repository_owner_id == '823477'"
+    condition     = google_iam_workload_identity_pool_provider.github.attribute_condition == "assertion.sub == 'repo:niltonkummer@823477/meu-processo@1350848235:environment:validation' && assertion.repository == 'niltonkummer/meu-processo' && assertion.repository_id == '1350848235' && assertion.repository_owner_id == '823477'"
     error_message = "OIDC tokens from other repositories must be rejected by the provider."
   }
 
@@ -43,7 +43,7 @@ run "github_oidc_is_keyless_and_restricted_to_validation" {
   }
 
   assert {
-    condition     = google_service_account_iam_member.github_deployer.member == "principal://iam.googleapis.com/projects/507018507018/locations/global/workloadIdentityPools/meu-processo-github/subject/repo:niltonkummer/meu-processo:environment:validation"
+    condition     = google_service_account_iam_member.github_deployer.member == "principal://iam.googleapis.com/projects/507018507018/locations/global/workloadIdentityPools/meu-processo-github/subject/repo:niltonkummer@823477/meu-processo@1350848235:environment:validation"
     error_message = "Only GitHub jobs bound to the validation environment may impersonate the deployer."
   }
 

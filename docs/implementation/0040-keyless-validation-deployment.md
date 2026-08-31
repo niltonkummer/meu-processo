@@ -14,7 +14,8 @@ estática, mantendo o renderer privado e vinculando a confiança ao Environment
 ## Controles implementados
 
 - Workload Identity Pool e provider gerenciados por Terraform;
-- subject exato `repo:niltonkummer/meu-processo:environment:validation`;
+- subject exato
+  `repo:niltonkummer@823477/meu-processo@1350848235:environment:validation`;
 - service account de deploy sem chave de usuário;
 - IAM de administração/uso de service accounts limitado às identidades do
   state;
@@ -23,6 +24,11 @@ estática, mantendo o renderer privado e vinculando a confiança ao Environment
 - workflow manual com Environment, concorrência serial, imagens imutáveis,
   SBOM, provenance, scans e plano salvo antes do apply;
 - gate de custo apontando para a avaliação 0044.
+
+O Checkov 3.3.0 não reconhece o delimitador `@` do subject customizado do
+GitHub e, por isso, `CKV_GCP_125` possui uma exceção documentada. A condição
+equivalente não foi removida: Terraform, testes e a própria pipeline verificam
+o subject observado completo, além dos claims separados de repositório e IDs.
 
 ## Procedimento autorizado
 

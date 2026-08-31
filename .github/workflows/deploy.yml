@@ -90,7 +90,7 @@ jobs:
           public_claims=$(printf '%s' "$payload" | base64 --decode | jq '{sub, repository, repository_id, repository_owner_id}')
           jq . <<< "$public_claims"
           jq -e \
-            --arg sub 'repo:niltonkummer/meu-processo:environment:validation' \
+            --arg sub 'repo:niltonkummer@823477/meu-processo@1350848235:environment:validation' \
             --arg repository 'niltonkummer/meu-processo' \
             --arg repository_id '1350848235' \
             --arg owner_id '823477' \

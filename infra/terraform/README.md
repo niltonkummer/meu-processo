@@ -106,9 +106,9 @@ Terraform. O rollout público é separado: primeiro aplique a imagem com
 
 Terraform declara um Workload Identity Pool/Provider e a service account
 `meu-processo-deploy`. O provider aceita exclusivamente tokens cujo subject é
-`repo:niltonkummer/meu-processo:environment:validation` e também confirma os IDs
-numéricos imutáveis do repositório e do proprietário. Nenhuma chave JSON é
-criada.
+`repo:niltonkummer@823477/meu-processo@1350848235:environment:validation` e
+também confirma os IDs numéricos imutáveis do repositório e do proprietário em
+claims separados. Nenhuma chave JSON é criada.
 
 O primeiro bootstrap é uma exceção única: a identidade administrativa já
 autenticada aplica um plano salvo, revisado e sem destruições. Depois disso,
