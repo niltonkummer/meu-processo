@@ -225,6 +225,62 @@ describe("App", () => {
     expect(storage.length).toBe(0);
   });
 
+  it("keeps one-off official search available while profile persistence is disabled", async () => {
+    const user = userEvent.setup();
+    const unavailable = () => new Response(
+      JSON.stringify({
+        code: "MONITORING_PROFILES_UNAVAILABLE",
+        message: "O cadastro de perfis ainda não está configurado.",
+      }),
+      { status: 503, headers: { "content-type": "application/json" } },
+    );
+    const fetcher = vi.fn<typeof fetch>().mockImplementation((input) => {
+      const url = requestUrl(input);
+      if (url === "/api/v1/session") return Promise.resolve(sessionResponse());
+      if (url === "/api/v1/cases?limit=20") {
+        return Promise.resolve(new Response(
+          JSON.stringify({ cases: [], page: { nextCursor: null } }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ));
+      }
+      if (url === "/api/v1/alerts?limit=20&status=all") {
+        return Promise.resolve(new Response(
+          JSON.stringify({ items: [], nextCursor: null }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ));
+      }
+      if (
+        url === "/api/v1/monitoring/subjects?limit=100" ||
+        url === "/api/v1/monitoring/subjects"
+      ) return Promise.resolve(unavailable());
+      if (url === "/api/v1/searches") {
+        return Promise.resolve(new Response(JSON.stringify(responseBody), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }));
+      }
+      return Promise.reject(new Error(`unexpected URL: ${url}`));
+    });
+    render(
+      <App
+        fetcher={fetcher}
+        storage={storage}
+        loadAuthClient={vi.fn().mockResolvedValue(authClient())}
+      />,
+    );
+
+    await signIn(user);
+    await user.type(screen.getByLabelText("Nome completo"), "Pessoa Exemplo");
+    await user.click(screen.getByRole("button", { name: "Cadastrar e buscar" }));
+
+    expect(await screen.findByText("Decisão de exemplo")).toBeVisible();
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/v1/searches",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(screen.getByRole("heading", { name: "Consultas desta sessão" })).toBeVisible();
+  });
+
   it("keeps the experimental document-search limitation visible", async () => {
     const user = userEvent.setup();
     render(

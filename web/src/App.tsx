@@ -236,6 +236,15 @@ export function App({
         ) {
           const loaded = await listMonitoringProfiles(fetcher, token);
           setProfiles(loaded);
+        } else if (
+          caught instanceof SafeMonitoringProfileError &&
+          caught.code === "MONITORING_PROFILES_UNAVAILABLE"
+        ) {
+          // Validation can keep the official one-off consultation available
+          // before the persistent PostgreSQL monitoring runtime is activated.
+          // Only this explicit server capability signal is allowed to degrade;
+          // validation, authorization and tenant errors still fail closed.
+          createdProfile = undefined;
         } else {
           throw caught;
         }
