@@ -1,6 +1,6 @@
 # Implementação 0039 — resultados por perfil e recuperação de publicação
 
-**Status:** implementada e verificada localmente; rollout não iniciado
+**Status:** implementada e publicada em validation; PDF aguarda validação humana
 **Data:** 31 de agosto de 2026
 **Spec:** [0034](../specs/0034-profile-results-and-publication-recovery.md)
 **ADR:** [0026](../adr/0026-profile-case-summary-projection.md)
@@ -37,7 +37,7 @@ um resultado novo com uma consulta anterior que falhou.
 
 ## Evidências
 
-- 89 arquivos de teste e 1.161 testes aprovados;
+- 89 arquivos de teste e 1.162 testes aprovados;
 - cobertura de 100% em statements, branches, functions e lines;
 - 292 asserções pgTAP e 39 testes de contrato do banco aprovados em PostgreSQL
   descartável;
@@ -46,8 +46,13 @@ um resultado novo com uma consulta anterior que falhou.
   permanecem em dependências transitivas do Firebase;
 - varredura do repositório sem segredo detectado;
 - imagens da aplicação e do renderer sem vulnerabilidade High/Critical;
-- revisão visual local da tela pública concluída; o estado autenticado está
-  coberto por testes de interface, sem uso de credenciais do proprietário.
+- smoke autenticado em validation encontrou 3 processos e 16 publicações para
+  o nome informado, agrupados por CNJ sem misturar os processos;
+- o renderer brasileiro exibiu o CAPTCHA oficial no painel e a sessão
+  permaneceu disponível por mais de 70 segundos após o timeout do gateway e do
+  renderer serem alinhados para 180 segundos;
+- deploy OIDC, revisão pública, renderer privado, bucket privado e checks do PR
+  foram aprovados no commit `6bdaa05`.
 
 ## Limites conhecidos e liberação
 
@@ -58,8 +63,9 @@ um resultado novo com uma consulta anterior que falhou.
   fonte não responde;
 - a contagem persistente aparece depois que o worker projeta o alerta. O resumo
   da consulta manual cobre apenas a sessão atual até essa projeção;
-- ainda é necessário um smoke autenticado contra a fonte real no ambiente
-  brasileiro para comprovar o percurso completo CAPTCHA → PDF → Storage;
-- nenhuma cobrança, commit, push, merge, apply ou publicação em nuvem foi feita;
+- ainda é necessária uma resposta humana correta ao CAPTCHA para comprovar o
+  percurso CAPTCHA → PDF. O caminho assistido atual entrega diretamente ao
+  navegador e ainda não materializa o arquivo em GCS/PostgreSQL;
+- não houve bypass, OCR, solver, cobrança real ou merge na `main`;
 - o rollout pode avançar no ambiente de validação enquanto a projeção total
   permanecer abaixo de US$ 10/mês, respeitando os limites da avaliação 0043.

@@ -1,6 +1,6 @@
 # Implementação 0040 — deploy keyless em validation
 
-**Status:** pronto para bootstrap e validação
+**Status:** publicado e validado em `validation`; merge não realizado
 **Data:** 31 de agosto de 2026
 **Ambiente:** `validation` / `meu-processo-507018`
 **Custo aprovado:** [avaliação 0044](../costs/0044-oidc-and-publication-validation-rollout.md)
@@ -51,10 +51,23 @@ própria quando forem integrados.
 
 ## Evidências de rollout
 
-Preencher após a execução:
-
-- commit e PR: pendentes;
-- plano Terraform: pendente;
-- workflow e revisões: pendentes;
-- chave de usuário da service account: pendente;
-- resultado do smoke: pendente.
+- commit de aplicação publicado: `6bdaa05`, na
+  [PR 14](https://github.com/niltonkummer/meu-processo/pull/14);
+- bootstrap inicial: 27 recursos adicionados, 1 alterado e nenhuma destruição;
+  correção do principal OIDC substituiu somente o binding inválido esperado;
+- deploy final aprovado no
+  [workflow 33432850201](https://github.com/niltonkummer/meu-processo/actions/runs/33432850201);
+- revisão pública `meu-processo-mvp-00034-gjs` e renderer privado
+  `meu-processo-browser-renderer-00006-wxd`, ambos com timeout de 180 segundos;
+- zero chaves gerenciadas pelo usuário na service account de deploy;
+- busca autenticada real: 3 processos e 16 publicações agrupados;
+- CAPTCHA oficial exibido no painel e sessão preservada por mais de 70 segundos;
+- PDF final pendente exclusivamente da resposta humana ao CAPTCHA; nenhum
+  bypass, OCR ou solver foi utilizado;
+- a conta sintética usada no smoke foi desconectada e removida do Identity
+  Platform ao final da validação;
+- uma falha transitória de startup preservou o tráfego na revisão anterior; o
+  rerun revelou a necessidade de reutilizar tags imutáveis. O workflow passou
+  a ser idempotente e o deploy seguinte concluiu todos os gates;
+- rollback permanece disponível por revisão imutável do Cloud Run. A `main`
+  não foi alterada.
