@@ -88,6 +88,7 @@ jobs:
             3) payload="${payload}=" ;;
           esac
           public_claims=$(printf '%s' "$payload" | base64 --decode | jq '{sub, repository, repository_id, repository_owner_id}')
+          jq . <<< "$public_claims"
           jq -e \
             --arg sub 'repo:niltonkummer/meu-processo:environment:validation' \
             --arg repository 'niltonkummer/meu-processo' \
@@ -95,7 +96,6 @@ jobs:
             --arg owner_id '823477' \
             '.sub == $sub and .repository == $repository and .repository_id == $repository_id and .repository_owner_id == $owner_id' \
             <<< "$public_claims" >/dev/null
-          jq . <<< "$public_claims"
           unset oidc_token payload public_claims
 
       - name: Re-run release gates
