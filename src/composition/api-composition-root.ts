@@ -13,6 +13,7 @@ import { OfficialDjenClient } from "../infrastructure/djen-client.js";
 import { createFirebaseTokenVerifier } from "../infrastructure/firebase-authentication.js";
 import { MemoryRequestRateLimiter } from "../infrastructure/memory-request-rate-limiter.js";
 import { SecureDocumentClient } from "../infrastructure/secure-document-client.js";
+import { DjenPublicationPdfGenerator } from "../infrastructure/djen-publication-pdf.js";
 
 export const composeApiServer = (config: RuntimeConfig) => {
   const djenClient = new OfficialDjenClient(fetch, config.djenSearchProxyUrl);
@@ -27,6 +28,7 @@ export const composeApiServer = (config: RuntimeConfig) => {
     client: djenClient,
     webRoot: resolve("dist/web"),
     publicationLocator: djenClient,
+    publicationCopyPdfGenerator: new DjenPublicationPdfGenerator(),
     documentClient: new SecureDocumentClient({
       allowedHosts: ["eproc1g.tjrs.jus.br", "eproc2g.tjrs.jus.br"],
     }),

@@ -19,6 +19,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { AccountDataControlsService } from "../application/account-data-controls.js";
 import type { PersonalBillingService } from "../application/personal-billing.js";
 import type { BillingWebhook } from "../application/billing-webhook.js";
+import type { PublicationCopyPdfGenerator } from "../application/publication-copy.js";
 
 export interface PrivateApiDependencies {
   readonly client: DjenClient;
@@ -27,6 +28,7 @@ export interface PrivateApiDependencies {
   readonly documentRepository?: DocumentRepository | undefined;
   readonly documentClient?: DocumentClient | undefined;
   readonly publicationLocator?: DjenPublicationLocator | undefined;
+  readonly publicationCopyPdfGenerator?: PublicationCopyPdfGenerator | undefined;
   readonly requestRateLimiter?: RequestRateLimiter | undefined;
   readonly rendererConnector?: AssistedRendererConnector | undefined;
   readonly monitoringProfiles?: MonitoringProfilesService | undefined;

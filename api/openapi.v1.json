@@ -273,6 +273,30 @@
         }
       }
     },
+    "/api/v1/processes/{cnjNumber}/communications/{communicationNumber}/publication-copy": {
+      "get": {
+        "operationId": "downloadDjenPublicationCopy",
+        "summary": "Gera uma cópia PDF do texto oficial publicado no DJEN",
+        "description": "A cópia é gerada a partir do texto oficial do DJEN e não substitui documento original, certidão ou assinatura do tribunal.",
+        "tags": ["Publications"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "cnjNumber", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[0-9]{20}$" } },
+          { "name": "communicationNumber", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } }
+        ],
+        "responses": {
+          "200": { "description": "Cópia PDF privada, identificada como reprodução do DJEN", "headers": { "Content-Disposition": { "schema": { "type": "string", "pattern": "^attachment;" } }, "X-Document-Sha256": { "schema": { "$ref": "#/components/schemas/Sha256" } } }, "content": { "application/pdf": { "schema": { "type": "string", "format": "binary" } } } },
+          "400": { "description": "Referência inválida", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "401": { "description": "Autenticação necessária", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Publicação não encontrada", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "422": { "description": "Texto oficial indisponível no DJEN", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "429": { "description": "Limite local ou da fonte atingido", "headers": { "Retry-After": { "schema": { "type": "integer", "minimum": 1 } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "502": { "description": "Fonte oficial indisponível ou falha segura durante a geração", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "503": { "description": "Geração de cópia não configurada", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "description": "Erro interno seguro", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
     "/api/v1/processes/{cnjNumber}/communications/{communicationNumber}/document": {
       "get": {
         "operationId": "openPublicationDocument",

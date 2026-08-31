@@ -419,6 +419,7 @@ describe("versioned Meu Processo contract", () => {
       "DELETE /api/v1/monitoring/subjects/{subjectId} (archiveMonitoringSubject)",
       "GET /api/v1/processes/{cnjNumber}/communications/{communicationNumber}/document (openPublicationDocument)",
       "POST /api/v1/processes/{cnjNumber}/communications/{communicationNumber}/document/challenge (completePublicationDocumentChallenge)",
+      "GET /api/v1/processes/{cnjNumber}/communications/{communicationNumber}/publication-copy (downloadDjenPublicationCopy)",
       "POST /api/v1/searches (searchProcesses)",
       "GET /api/v1/session (getSession)",
       "POST /api/v1/webhooks/stripe (receiveStripeBillingWebhook)",

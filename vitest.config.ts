@@ -21,6 +21,7 @@ export default defineConfig({
         "src/infrastructure/google-cloud-storage-gateway.ts",
         "src/infrastructure/postgres-runtime-pool.ts",
         "web/src/document-session-client.ts",
+        "web/src/publication-copy-client.ts",
         "web/src/case-activity-client.ts",
         "web/src/persisted-portfolio-client.ts",
         "web/src/persisted-document-client.ts",

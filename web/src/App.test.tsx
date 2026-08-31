@@ -1,6 +1,7 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
 
 import { App } from "./App";
 import type { AuthClient, AuthUser } from "./auth-client";
@@ -560,7 +561,72 @@ describe("App", () => {
     expect(storage.length).toBe(0);
   });
 
-  it("opens a process and downloads its publication through the authenticated proxy", async () => {
+  it("downloads the authenticated DJEN copy without opening a tribunal challenge", async () => {
+    const user = userEvent.setup();
+    const saveFile = vi.fn();
+    const copyBytes = new TextEncoder().encode("%PDF-copy");
+    const copyHash = createHash("sha256").update(copyBytes).digest("hex");
+    const fetcher = vi.fn<typeof fetch>().mockImplementation((input) => {
+      const url = requestUrl(input);
+      if (url === "/api/v1/session") return Promise.resolve(sessionResponse());
+      const monitoring = monitoringResponse(url);
+      if (monitoring) return Promise.resolve(monitoring);
+      if (url === "/api/v1/searches") {
+        return Promise.resolve(
+          new Response(JSON.stringify(responseBody), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        );
+      }
+      if (
+        url ===
+        "/api/v1/processes/00000012320268990001/communications/98765/publication-copy"
+      ) {
+        return Promise.resolve(
+          new Response(copyBytes, {
+            status: 200,
+            headers: {
+              "content-type": "application/pdf",
+              "content-length": String(copyBytes.byteLength),
+              "content-disposition": "attachment; filename=untrusted.pdf",
+              "x-document-sha256": copyHash,
+            },
+          }),
+        );
+      }
+      return Promise.reject(new Error(`unexpected URL: ${url}`));
+    });
+    const openSession = vi.fn();
+    render(
+      <App
+        fetcher={fetcher}
+        storage={storage}
+        loadAuthClient={vi.fn().mockResolvedValue(authClient())}
+        saveFile={saveFile}
+        openSession={openSession}
+      />,
+    );
+
+    await signIn(user);
+    await user.type(screen.getByLabelText("Nome completo"), "Pessoa Exemplo");
+    await user.click(screen.getByRole("button", { name: "Cadastrar e buscar" }));
+    await user.click(await screen.findByRole("button", { name: "Abrir processo" }));
+    await user.click(
+      screen.getByRole("button", { name: "Baixar cópia da publicação" }),
+    );
+
+    await waitFor(() =>
+      expect(saveFile).toHaveBeenCalledWith(
+        expect.any(Blob),
+        "0000001-23.2026.8.99.0001-comunicacao-98765-publicacao-djen.pdf",
+      ),
+    );
+    expect(openSession).not.toHaveBeenCalled();
+    expect(screen.getByText("Cópia DJEN baixada.")).toBeVisible();
+  });
+
+  it("opens a process and downloads its original publication through the authenticated proxy", async () => {
     const user = userEvent.setup();
     const saveFile = vi.fn();
     const fetcher = vi.fn<typeof fetch>().mockImplementation((input) => {
@@ -607,7 +673,7 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: /detalhe do processo/i })).toBeVisible();
 
     await user.click(
-      screen.getByRole("button", { name: "Baixar publicação pelo proxy" }),
+      screen.getByRole("button", { name: "Tentar documento original (experimental)" }),
     );
 
     expect(openSession).toHaveBeenCalledWith(
@@ -644,7 +710,7 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "Cadastrar e buscar" }));
     await user.click(await screen.findByRole("button", { name: "Abrir processo" }));
     await user.click(
-      screen.getByRole("button", { name: "Baixar publicação pelo proxy" }),
+      screen.getByRole("button", { name: "Tentar documento original (experimental)" }),
     );
 
     expect(
@@ -706,7 +772,7 @@ describe("App", () => {
       await screen.findByRole("button", { name: "Abrir processo" }),
     );
     await user.click(
-      screen.getByRole("button", { name: "Baixar publicação pelo proxy" }),
+      screen.getByRole("button", { name: "Tentar documento original (experimental)" }),
     );
 
     expect(
@@ -762,7 +828,7 @@ describe("App", () => {
       await screen.findByRole("button", { name: "Abrir processo" }),
     );
     await user.click(
-      screen.getByRole("button", { name: "Baixar publicação pelo proxy" }),
+      screen.getByRole("button", { name: "Tentar documento original (experimental)" }),
     );
 
     expect(await screen.findByText(

@@ -48,6 +48,7 @@ describe("HTTP handler boundaries", () => {
       "handlePrivateSession",
       "handlePrivateBilling",
       "handleAccountData",
+      "handlePublicationCopy",
       "handlePublicationProxy",
       "handleMonitoringProfiles",
       "handlePrivateAlerts",

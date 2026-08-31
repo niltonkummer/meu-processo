@@ -4,6 +4,7 @@ import { handleAccountData } from "./account-data.js";
 import { handlePrivateCases } from "./cases.js";
 import { handleMonitoringProfiles } from "./monitoring-subjects.js";
 import { handlePublicationProxy } from "./publications.js";
+import { handlePublicationCopy } from "./publication-copy.js";
 import { handleAuthenticatedSearch } from "./search.js";
 import { handlePrivateSession } from "./session.js";
 import { handlePrivateBilling } from "./billing.js";
@@ -14,6 +15,7 @@ export const privateRequestHandlers: readonly PrivateRequestHandler[] = [
   handlePrivateSession,
   handlePrivateBilling,
   handleAccountData,
+  handlePublicationCopy,
   handlePublicationProxy,
   handleMonitoringProfiles,
   handlePrivateAlerts,

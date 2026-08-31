@@ -9,6 +9,7 @@ import {
   openDocumentSession,
   type DocumentSessionControl,
 } from "./document-session-client";
+import { downloadPublicationCopy as requestPublicationCopy } from "./publication-copy-client";
 import {
   archiveMonitoringProfile,
   createMonitoringProfile,
@@ -170,6 +171,7 @@ export function App({
   const [authSession, setAuthSession] = useState<AuthenticatedWebSession>();
   const [selectedProcess, setSelectedProcess] = useState<SearchProcess>();
   const [downloadingPublication, setDownloadingPublication] = useState("");
+  const [downloadingPublicationCopy, setDownloadingPublicationCopy] = useState("");
   const [publicationChallenge, setPublicationChallenge] =
     useState<PublicationChallenge>();
   const [documentStatus, setDocumentStatus] =
@@ -350,7 +352,42 @@ export function App({
     }
   };
 
-  const downloadPublication = async (
+  const downloadPublicationCopy = async (
+    process: SearchProcess,
+    publication: SearchPublication,
+  ) => {
+    if (!authSession || publication.communicationNumber === undefined) {
+      setError("Entre na sua conta para baixar a cópia da publicação.");
+      return;
+    }
+
+    const operationId = `${process.cnjNumber}:${publication.communicationNumber}`;
+    setDownloadingPublicationCopy(operationId);
+    setDocumentStatus({ operationId, message: "Preparando cópia do DJEN…" });
+    setError("");
+    try {
+      const token = await authSession.getIdToken();
+      const document = await requestPublicationCopy(
+        fetcher,
+        token,
+        cnjDigits(process.cnjNumber),
+        publication.communicationNumber,
+      );
+      saveFile(document.blob, document.fileName);
+      setDocumentStatus({ operationId, message: "Cópia DJEN baixada." });
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Não foi possível preparar a cópia da publicação.",
+      );
+      setDocumentStatus(undefined);
+    } finally {
+      setDownloadingPublicationCopy("");
+    }
+  };
+
+  const downloadOriginalPublication = async (
     process: SearchProcess,
     publication: SearchPublication,
   ) => {
@@ -748,6 +785,7 @@ export function App({
                           setSelectedProcess(undefined);
                           setPublicationChallenge(undefined);
                           setDownloadingPublication("");
+                          setDownloadingPublicationCopy("");
                           setDocumentStatus(undefined);
                         }}
                       >
@@ -766,21 +804,40 @@ export function App({
                           <div className="publication" key={publication.id}>
                             <time>{formatDate(publication.availableAt)}</time>
                             <p>{publication.summary || "Texto não informado pela fonte."}</p>
-                            {publication.documentAvailable &&
-                            publication.communicationNumber !== undefined ? (
+                            {publication.communicationNumber !== undefined ? (
                               <>
                                 <button
                                   className="proxy-download"
                                   type="button"
-                                  disabled={downloadingPublication === operationId}
+                                  disabled={downloadingPublicationCopy === operationId}
                                   onClick={() =>
-                                    void downloadPublication(selectedProcess, publication)
+                                    void downloadPublicationCopy(selectedProcess, publication)
                                   }
                                 >
-                                  {downloadingPublication === operationId
-                                    ? "Abrindo pelo Brasil…"
-                                    : "Baixar publicação pelo proxy"}
+                                  {downloadingPublicationCopy === operationId
+                                    ? "Preparando cópia…"
+                                    : "Baixar cópia da publicação"}
                                 </button>
+                                <small className="copy-disclaimer">
+                                  Reprodução do texto oficial do DJEN; não substitui o original do tribunal.
+                                </small>
+                                {publication.documentAvailable ? (
+                                  <button
+                                    className="original-download"
+                                    type="button"
+                                    disabled={downloadingPublication === operationId}
+                                    onClick={() =>
+                                      void downloadOriginalPublication(
+                                        selectedProcess,
+                                        publication,
+                                      )
+                                    }
+                                  >
+                                    {downloadingPublication === operationId
+                                      ? "Abrindo pelo Brasil…"
+                                      : "Tentar documento original (experimental)"}
+                                  </button>
+                                ) : null}
                                 {documentStatus?.operationId === operationId ? (
                                   <p
                                     className="document-session-status"
@@ -862,7 +919,7 @@ export function App({
                               </>
                             ) : (
                               <span className="document-unavailable">
-                                Documento não disponível para proxy seguro.
+                                Publicação sem identificador para gerar a cópia.
                               </span>
                             )}
                           </div>
@@ -974,9 +1031,12 @@ export function App({
                             </dl>
                           )}
                           <p>{publication.summary || "Texto não informado pela fonte."}</p>
-                          {publication.documentAvailable ? (
+                          {publication.communicationNumber !== undefined ? (
                             <span className="proxy-available">
-                              Documento disponível pelo proxy brasileiro
+                              Cópia PDF do DJEN disponível
+                              {publication.documentAvailable
+                                ? " · original experimental"
+                                : ""}
                             </span>
                           ) : null}
                         </div>
