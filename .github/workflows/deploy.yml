@@ -184,6 +184,9 @@ jobs:
           aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
           image --exit-code 1 --ignore-unfixed --severity HIGH,CRITICAL "$BROWSER_RENDERER_IMAGE_URI"
 
+      - name: Set up attestation-capable Docker builder
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
       - name: Publish immutable image with provenance and SBOM
         env:
           IMAGE_URI: ${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPOSITORY }}/app:${{ github.sha }}
