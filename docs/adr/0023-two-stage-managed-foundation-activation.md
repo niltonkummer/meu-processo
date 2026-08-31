@@ -1,8 +1,8 @@
 # ADR 0023 — ativação em duas etapas da fundação gerenciada
 
-**Status:** aceito para implementação plan-only  
+**Status:** fundação passiva aprovada para rollout de validação
 **Data:** 31 de agosto de 2026  
-**Custo:** [Avaliação 0036](../costs/0036-managed-foundation-plan-only.md)  
+**Custo:** [Avaliação 0040](../costs/0040-gcp-validation-foundation-rollout.md)
 **Relacionado:** ADRs [0016](./0016-managed-supabase-postgres.md),
 [0017](./0017-infisical-secrets-control-plane.md) e
 [0020](./0020-worker-trigger-and-privilege-boundary.md)
@@ -22,7 +22,8 @@ possui fonte registrada.
 Separar a adoção cloud em duas etapas independentes:
 
 1. **fundação passiva:** bucket privado, CMEK, secret containers sem versões,
-   service accounts e IAM mínimo, sempre atrás de uma flag falsa por padrão;
+   service accounts e IAM mínimo, atrás de uma flag falsa por padrão e de um
+   acknowledgement exato, restrito ao ambiente autorizado;
 2. **runtime ativo:** Secret Sync, versões pinadas, adapters cloud, Cloud Run
    Jobs, Scheduler, migrations e tráfego; exige spec, custo e aprovação novos.
 
@@ -60,4 +61,3 @@ destruição. IAM é concedido no recurso, nunca por papel amplo de projeto.
 Exigir adapter GCS com contract tests, fonte allowlisted, secret versions
 sincronizadas, migrations aplicadas em sandbox, restore, plano/Infracost,
 threat model atualizado e aprovação explícita de rollout.
-

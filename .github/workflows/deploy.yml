@@ -211,6 +211,8 @@ jobs:
           -var="image_uri=$IMAGE_URI"
           -var="browser_renderer_image_uri=$BROWSER_RENDERER_IMAGE_URI"
           -var="public_access_enabled=$PUBLIC_ACCESS_ENABLED"
+          -var="managed_foundation_enabled=true"
+          -var="managed_foundation_acknowledgement=APPROVED_VALIDATION_ROLLOUT_0040"
 
       - name: Apply the reviewed plan
         working-directory: infra/terraform
@@ -275,3 +277,34 @@ jobs:
             echo "::error::Cloud Run became public during the private rollout phase."
             exit 1
           fi
+
+      - name: Verify passive managed foundation
+        run: |
+          set -euo pipefail
+          bucket="${GCP_PROJECT_ID}-process-objects-${DEPLOY_ENVIRONMENT}"
+
+          gcloud storage buckets describe "gs://${bucket}" \
+            --project "$GCP_PROJECT_ID" \
+            --format='value(name)' \
+            | grep -Fqx "$bucket"
+
+          public_access_prevention=$(gcloud storage buckets describe "gs://${bucket}" \
+            --project "$GCP_PROJECT_ID" \
+            --format='value(iamConfiguration.publicAccessPrevention)')
+          [[ "$public_access_prevention" == "enforced" ]]
+
+          for workload in dispatcher document lifecycle monitoring scheduler; do
+            gcloud iam service-accounts describe \
+              "meu-processo-${workload}@${GCP_PROJECT_ID}.iam.gserviceaccount.com" \
+              --project "$GCP_PROJECT_ID" \
+              --format='value(disabled)' \
+              | grep -Fqx 'False'
+          done
+
+          secret_count=$(gcloud secrets list \
+            --project "$GCP_PROJECT_ID" \
+            --filter="name:meu-processo-${DEPLOY_ENVIRONMENT}-" \
+            --format='value(name)' \
+            | wc -l \
+            | tr -d ' ')
+          [[ "$secret_count" == "7" ]]

@@ -114,3 +114,35 @@ run "managed_foundation_plan_is_private_and_least_privilege" {
     error_message = "Secret access may target only the five reviewed workload identities."
   }
 }
+
+run "approved_validation_rollout_uses_the_reviewed_cost_gate" {
+  command = plan
+
+  variables {
+    environment                        = "validation"
+    managed_foundation_enabled         = true
+    managed_foundation_acknowledgement = "APPROVED_VALIDATION_ROLLOUT_0040"
+  }
+
+  assert {
+    condition     = length(google_storage_bucket.process_objects) == 1
+    error_message = "The approved validation rollout must include the reviewed process-object bucket."
+  }
+
+  assert {
+    condition     = length(google_service_account.managed_workload) == 5
+    error_message = "The approved validation rollout must preserve one identity per privileged workload."
+  }
+}
+
+run "approved_rollout_token_is_rejected_outside_validation" {
+  command = plan
+
+  variables {
+    environment                        = "staging"
+    managed_foundation_enabled         = true
+    managed_foundation_acknowledgement = "APPROVED_VALIDATION_ROLLOUT_0040"
+  }
+
+  expect_failures = [var.managed_foundation_acknowledgement]
+}

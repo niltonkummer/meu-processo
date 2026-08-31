@@ -19,9 +19,9 @@ O repositório de imagens usa uma chave Cloud KMS controlada pelo projeto, com r
 
 ## Fundação gerenciada passiva
 
-A base do produto principal é deliberadamente opt-in e plan-only. Com os
-defaults, nenhum bucket, secret container ou identidade adicional é incluído.
-Para revisar o desenho sem autorizar rollout:
+A base do produto principal é deliberadamente opt-in. Com os defaults, nenhum
+bucket, secret container ou identidade adicional é incluído. Para revisar o
+desenho sem autorizar rollout:
 
 ```bash
 terraform test
@@ -32,8 +32,13 @@ infracost breakdown \
 
 O opt-in declara um bucket GCS privado/CMEK, sete secret containers vazios e
 cinco identidades de workload. Não declara secret versions, Cloud Run Jobs ou
-Scheduler. Infisical continua sendo a fonte de verdade; a futura projeção para
-Secret Manager e qualquer runtime ativo exigem um gate separado.
+Scheduler. Infisical continua sendo a fonte de verdade; a projeção de valores
+para Secret Manager e qualquer runtime ativo exigem um gate separado.
+
+A avaliação 0040 autoriza somente a fundação passiva no ambiente de validação.
+O workflow passa `APPROVED_VALIDATION_ROLLOUT_0040` explicitamente; esse valor é
+rejeitado em staging e produção. O modo plan-only continua disponível com
+`PLAN_ONLY_NO_APPLY` e o comportamento padrão continua sem recursos adicionais.
 
 O materializador possui `objectCreator` e `objectViewer`: cria objetos novos com
 precondition e relê apenas para provar idempotência quando o locator
@@ -41,7 +46,8 @@ determinístico já existe. Ele não recebe permissão de apagar ou sobrescrever
 
 `infracost.tfvars` contém somente valores sintéticos, não é carregado
 automaticamente pelo Terraform e nunca deve ser usado em `apply`. A avaliação
-vigente é [`docs/costs/0036-managed-foundation-plan-only.md`](../../docs/costs/0036-managed-foundation-plan-only.md).
+vigente para rollout é
+[`docs/costs/0040-gcp-validation-foundation-rollout.md`](../../docs/costs/0040-gcp-validation-foundation-rollout.md).
 
 ## Estado remoto
 

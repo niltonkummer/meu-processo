@@ -116,8 +116,11 @@ resource "google_kms_crypto_key" "process_objects" {
     prevent_destroy = true
 
     precondition {
-      condition     = var.managed_foundation_acknowledgement == "PLAN_ONLY_NO_APPLY"
-      error_message = "The managed foundation is plan-only until a separate rollout assessment is approved."
+      condition = contains([
+        "PLAN_ONLY_NO_APPLY",
+        "APPROVED_VALIDATION_ROLLOUT_0040",
+      ], var.managed_foundation_acknowledgement)
+      error_message = "The managed foundation requires the plan-only gate or the approved validation rollout 0040."
     }
   }
 }

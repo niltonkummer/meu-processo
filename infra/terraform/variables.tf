@@ -100,22 +100,26 @@ variable "additional_auth_domains" {
 }
 
 variable "managed_foundation_enabled" {
-  description = "Include the passive managed-product foundation in plans. This flag never authorizes terraform apply."
+  description = "Include the passive managed-product foundation in plans or in an explicitly approved validation rollout."
   type        = bool
   default     = false
 }
 
 variable "managed_foundation_acknowledgement" {
-  description = "Required plan-only acknowledgement when managed_foundation_enabled is true. It is deliberately not an apply approval."
+  description = "Exact reviewed gate for the passive foundation: plan-only, or cost assessment 0040 restricted to validation."
   type        = string
   default     = ""
 
   validation {
     condition = (
       !var.managed_foundation_enabled ||
-      var.managed_foundation_acknowledgement == "PLAN_ONLY_NO_APPLY"
+      var.managed_foundation_acknowledgement == "PLAN_ONLY_NO_APPLY" ||
+      (
+        var.environment == "validation" &&
+        var.managed_foundation_acknowledgement == "APPROVED_VALIDATION_ROLLOUT_0040"
+      )
     )
-    error_message = "managed_foundation_enabled requires PLAN_ONLY_NO_APPLY; rollout needs a separate approved cost assessment."
+    error_message = "managed_foundation_enabled requires PLAN_ONLY_NO_APPLY, or APPROVED_VALIDATION_ROLLOUT_0040 in validation only."
   }
 }
 
