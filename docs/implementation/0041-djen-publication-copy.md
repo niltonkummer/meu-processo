@@ -1,6 +1,6 @@
 # Implementação 0041 — cópia PDF da publicação DJEN
 
-**Status:** implementação concluída; rollout em `validation` pendente
+**Status:** publicado e validado em `validation`; merge não realizado
 **Data:** 31 de agosto de 2026
 **Spec:** [0035](../specs/0035-djen-publication-copy.md)
 **ADR:** [0027](../adr/0027-djen-copy-first-download.md)
@@ -46,9 +46,23 @@ Ela não é documento original, certidão ou cópia assinada. A materialização
 GCS/PostgreSQL permanece uma evolução independente; o contrato criado permite
 adicioná-la sem alterar a autorização nem a identidade da publicação.
 
-## Rollout
+## Evidências de rollout
 
-Publicar pela pipeline OIDC da PR 14 no ambiente `validation`, executar smoke
-autenticado e confirmar que o download da cópia não cria sessão no renderer.
-Atualizar esta evidência com commit, revisão e workflow. A `main` não deve ser
-alterada nesta etapa.
+- commit de aplicação `cd968c4`, na
+  [PR 14](https://github.com/niltonkummer/meu-processo/pull/14);
+- deploy OIDC aprovado no
+  [workflow 33443672396](https://github.com/niltonkummer/meu-processo/actions/runs/33443672396);
+- revisão pública `meu-processo-mvp-00035-f47` com 100% do tráfego e imagem
+  imutável correspondente ao commit;
+- renderer privado preservado na revisão
+  `meu-processo-browser-renderer-00007-j6g`;
+- saúde pública respondeu `200` após o rollout;
+- smoke autenticado real encontrou 3 processos e 16 publicações agrupadas;
+- cópia da comunicação `37884` respondeu `200`, 2.976 bytes e 0,462 s, passou
+  pela validação de integridade do navegador e concluiu sem CAPTCHA;
+- nenhuma chamada ao renderer ocorreu durante o download da cópia; a atividade
+  mais recente dele antecedia o teste e correspondia ao próprio rollout;
+- a conta sintética foi desconectada, removida do Identity Platform e a busca
+  posterior confirmou zero registros remanescentes;
+- a `main` não foi alterada e o rollback continua disponível pela revisão
+  imutável anterior.
