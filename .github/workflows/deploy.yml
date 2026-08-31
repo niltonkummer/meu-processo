@@ -314,22 +314,19 @@ jobs:
           set -euo pipefail
           bucket="${GCP_PROJECT_ID}-process-objects-${DEPLOY_ENVIRONMENT}"
 
-          gcloud storage buckets describe "gs://${bucket}" \
+          bucket_config=$(gcloud storage buckets describe "gs://${bucket}" \
             --project "$GCP_PROJECT_ID" \
-            --format='value(name)' \
-            | grep -Fqx "$bucket"
-
-          public_access_prevention=$(gcloud storage buckets describe "gs://${bucket}" \
-            --project "$GCP_PROJECT_ID" \
-            --format='value(iamConfiguration.publicAccessPrevention)')
-          [[ "$public_access_prevention" == "enforced" ]]
+            --format=json)
+          jq -e --arg bucket "$bucket" \
+            '.name == $bucket and .public_access_prevention == "enforced" and .uniform_bucket_level_access == true' \
+            <<< "$bucket_config" >/dev/null
 
           for workload in dispatcher document lifecycle monitoring scheduler; do
             gcloud iam service-accounts describe \
               "meu-processo-${workload}@${GCP_PROJECT_ID}.iam.gserviceaccount.com" \
               --project "$GCP_PROJECT_ID" \
-              --format='value(disabled)' \
-              | grep -Fqx 'False'
+              --format=json \
+              | jq -e '(.disabled // false) == false' >/dev/null
           done
 
           secret_count=$(gcloud secrets list \
