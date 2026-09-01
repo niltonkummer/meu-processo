@@ -7,7 +7,10 @@ import type {
   BrowserChallengeDriver,
   BrowserChallengeDriverFactory,
 } from "../application/browser-renderer-session.js";
-import { createBrowserRendererServer } from "./browser-renderer-server.js";
+import {
+  createBrowserRendererServer,
+  writeRendererSessionEvent,
+} from "./browser-renderer-server.js";
 import { websocketDataToText } from "./websocket-data.js";
 
 const SOURCE_URL =
@@ -29,12 +32,15 @@ afterEach(async () => {
   );
 });
 
-const start = async (factory: BrowserChallengeDriverFactory) => {
-  const server = createBrowserRendererServer({ driverFactory: factory });
+const start = async (
+  factory: BrowserChallengeDriverFactory,
+  logEvent = vi.fn(),
+) => {
+  const server = createBrowserRendererServer({ driverFactory: factory, logEvent });
   servers.push(server);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const { port } = server.address() as AddressInfo;
-  return { server, url: `ws://127.0.0.1:${port}` };
+  return { server, url: `ws://127.0.0.1:${port}`, logEvent };
 };
 
 const connect = (url: string) =>
@@ -63,6 +69,21 @@ const waitForMessages = async (
 };
 
 describe("createBrowserRendererServer", () => {
+  it("writes the safe session event as structured JSON", () => {
+    const consoleLog = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const event = {
+      event: "document_renderer_session_closed" as const,
+      correlationId: "5ef06ed6-f0c9-41fe-80c2-d715ce637480",
+      outcome: "source_unavailable",
+      durationMs: 38_000,
+    };
+
+    writeRendererSessionEvent(event);
+
+    expect(consoleLog).toHaveBeenCalledWith(JSON.stringify(event));
+    consoleLog.mockRestore();
+  });
+
   it("serves health and runs one complete challenge session", async () => {
     const driver = {
       open: vi.fn(() => Promise.resolve({
@@ -73,7 +94,9 @@ describe("createBrowserRendererServer", () => {
       submit: vi.fn(() => Promise.resolve({ type: "document" as const, bytes: PDF })),
       close: vi.fn(() => Promise.resolve()),
     } satisfies BrowserChallengeDriver;
-    const { url } = await start({ create: vi.fn(() => Promise.resolve(driver)) });
+    const { url, logEvent } = await start({
+      create: vi.fn(() => Promise.resolve(driver)),
+    });
     const health = await fetch(url.replace("ws:", "http:") + "/health");
 
     expect(await health.json()).toEqual({ ok: true });
@@ -112,6 +135,15 @@ describe("createBrowserRendererServer", () => {
     );
     await closed;
     expect(driver.close).toHaveBeenCalledOnce();
+    expect(logEvent).toHaveBeenCalledOnce();
+    expect(logEvent).toHaveBeenCalledWith({
+      event: "document_renderer_session_closed",
+      correlationId: expect.stringMatching(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+      ),
+      outcome: "complete",
+      durationMs: expect.any(Number),
+    });
   });
 
   it("rejects a second concurrent browser session without creating a driver", async () => {

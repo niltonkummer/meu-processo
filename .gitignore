@@ -16,15 +16,28 @@ coverage/
 *.pfx
 credentials*.json
 service-account*.json
+gha-creds-*.json
 
 # Test and local runtime
 tmp/
 .tmp/
 test-results/
 playwright-report/
+.playwright-cli/
+output/playwright/
 blob-report/
 .firebase/
 firebase-debug.log*
+
+# Local private document objects (never commit process files)
+.local/document-objects/*
+!.local/document-objects/README.md
+
+# Local synthetic document fixtures (never commit PDFs)
+.local/document-fixtures/*
+!.local/document-fixtures/synthetic-worker/
+.local/document-fixtures/synthetic-worker/*
+!.local/document-fixtures/synthetic-worker/README.md
 
 # Terraform local state and plans
 **/.terraform/*

@@ -147,16 +147,29 @@ jobs:
       - name: Calculate the baseline cost
         run: |
           set -euo pipefail
-          infracost breakdown \
-            --path=base/infra/terraform \
-            --format=json \
+          args=(
+            breakdown
+            --path=base/infra/terraform
+            --format=json
             --out-file="$RUNNER_TEMP/infracost-base.json"
+          )
+          baseline_var_file="$GITHUB_WORKSPACE/base/infra/terraform/infracost.tfvars"
+          if [[ -f "$baseline_var_file" ]]; then
+            args+=(--terraform-var-file="$baseline_var_file")
+          fi
+          infracost "${args[@]}"
 
       - name: Calculate the proposed cost difference
         run: |
           set -euo pipefail
+          proposed_var_file="$GITHUB_WORKSPACE/head/infra/terraform/infracost.tfvars"
+          if [[ ! -f "$proposed_var_file" ]]; then
+            echo "::error::Terraform changes require infra/terraform/infracost.tfvars with synthetic plan-only inputs."
+            exit 1
+          fi
           infracost diff \
             --path=head/infra/terraform \
+            --terraform-var-file="$proposed_var_file" \
             --format=json \
             --compare-to="$RUNNER_TEMP/infracost-base.json" \
             --out-file="$RUNNER_TEMP/infracost-diff.json"

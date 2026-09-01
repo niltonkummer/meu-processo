@@ -33,6 +33,7 @@ describe("VerifiedTokenAuthenticator", () => {
         userId: "firebase_user",
         email: "pessoa@example.test",
         emailVerified: true,
+        authenticatedAt: new Date("2026-08-31T12:00:00.000Z"),
       }),
     };
     const memberships = directory([activeMembership, inactiveMembership]);
@@ -41,6 +42,7 @@ describe("VerifiedTokenAuthenticator", () => {
     await expect(authenticator.verify("signed-token")).resolves.toEqual({
       userId: "firebase_user",
       memberships: [activeMembership],
+      authenticatedAt: new Date("2026-08-31T12:00:00.000Z"),
     });
     expect(decoder.decode).toHaveBeenCalledWith("signed-token");
     expect(memberships.listActiveForUser).toHaveBeenCalledWith("firebase_user");
@@ -54,6 +56,7 @@ describe("VerifiedTokenAuthenticator", () => {
           userId: "firebase_user",
           email: "pessoa@example.test",
           emailVerified: false,
+          authenticatedAt: new Date("2026-08-31T12:00:00.000Z"),
         }),
       },
       memberships,
@@ -62,13 +65,16 @@ describe("VerifiedTokenAuthenticator", () => {
     await expect(authenticator.verify("signed-token")).resolves.toEqual({
       userId: "firebase_user",
       memberships: [activeMembership],
+      authenticatedAt: new Date("2026-08-31T12:00:00.000Z"),
     });
     expect(memberships.listActiveForUser).toHaveBeenCalledWith("firebase_user");
   });
 
   it.each([
-    { userId: "", email: "pessoa@example.test", emailVerified: true },
-    { userId: "firebase_user", email: "", emailVerified: true },
+    { userId: "", email: "pessoa@example.test", emailVerified: true,
+      authenticatedAt: new Date("2026-08-31T12:00:00.000Z") },
+    { userId: "firebase_user", email: "", emailVerified: true,
+      authenticatedAt: new Date("2026-08-31T12:00:00.000Z") },
   ])("rejects an identity that is not eligible for private access", async (identity) => {
     const memberships = directory();
     const authenticator = new VerifiedTokenAuthenticator(

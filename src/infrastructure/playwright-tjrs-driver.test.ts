@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { BrowserDriverStep } from "../application/browser-renderer-session.js";
 import {
+  challengeDiscoveryScript,
+  PlaywrightBrowserPage,
   PlaywrightTjrsDriver,
   type BrowserPagePort,
   type BrowserPagePortFactory,
@@ -13,6 +15,23 @@ const PNG = Uint8Array.from([
 const PDF = new TextEncoder().encode("%PDF-1.7\nfixture\n%%EOF");
 const SOURCE =
   "https://eproc1g.tjrs.jus.br/eproc/controlador.php?acao=acessar_documento_publico";
+
+const rect = (
+  width: number,
+  height: number,
+  top: number,
+  left: number,
+): DOMRect => ({
+  x: left,
+  y: top,
+  width,
+  height,
+  top,
+  right: left + width,
+  bottom: top + height,
+  left,
+  toJSON: () => ({}),
+});
 
 const setup = (outcomes: BrowserDriverStep[]) => {
   const page: BrowserPagePort = {
@@ -36,6 +55,86 @@ const setup = (outcomes: BrowserDriverStep[]) => {
 };
 
 describe("PlaywrightTjrsDriver", () => {
+  it("starts inspection at navigation commit and observes beyond the old timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const startedAt = Date.now();
+      const screenshot = vi.fn(() => Promise.resolve(Buffer.from(PNG)));
+      const page = {
+        on: vi.fn(),
+        goto: vi.fn(() => Promise.resolve(null)),
+        evaluate: vi.fn(() => Promise.resolve(Date.now() - startedAt >= 16_000)),
+        locator: vi.fn(() => ({ screenshot })),
+      };
+      const browserPage = new PlaywrightBrowserPage(
+        { close: vi.fn(() => Promise.resolve()) } as never,
+        { close: vi.fn(() => Promise.resolve()) } as never,
+        page as never,
+        25 * 1024 * 1024,
+      );
+
+      await browserPage.open(SOURCE);
+      const outcome = browserPage.readOutcome();
+      await vi.advanceTimersByTimeAsync(16_000);
+
+      await expect(outcome).resolves.toEqual({
+        type: "challenge",
+        pngBytes: PNG,
+      });
+      expect(page.goto).toHaveBeenCalledWith(SOURCE, {
+        waitUntil: "commit",
+        timeout: 45_000,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("selects the rendered CAPTCHA surface and ignores its marked audio control", () => {
+    document.body.innerHTML = `
+      <form>
+        <img id="infraCaptchaAudio" alt="Ouvir código" src="data:image/png;base64,aA==">
+        <div id="renderedChallenge" data-url="/captcha-render.png"></div>
+        <input id="txtInfraCaptcha" name="captcha" type="text">
+      </form>`;
+    const audio = document.querySelector("#infraCaptchaAudio")!;
+    const challenge = document.querySelector("#renderedChallenge")!;
+    const field = document.querySelector("#txtInfraCaptcha")!;
+    vi.spyOn(audio, "getBoundingClientRect").mockReturnValue(rect(24, 24, 0, 0));
+    vi.spyOn(challenge, "getBoundingClientRect").mockReturnValue(rect(220, 70, 20, 20));
+    vi.spyOn(field, "getBoundingClientRect").mockReturnValue(rect(220, 44, 100, 20));
+
+    expect(window.eval(challengeDiscoveryScript)).toBe(true);
+    expect(challenge).toHaveAttribute("data-meu-processo-challenge", "true");
+    expect(audio).not.toHaveAttribute("data-meu-processo-challenge");
+    expect(field).toHaveAttribute("data-meu-processo-answer", "true");
+  });
+
+  it("accepts a non-empty canvas but rejects an audio-only or unloaded surface", () => {
+    document.body.innerHTML = `
+      <form>
+        <canvas id="captchaCanvas" width="220" height="70"></canvas>
+        <input name="codigoSeguranca" type="text">
+      </form>`;
+    const canvas = document.querySelector("canvas")!;
+    const field = document.querySelector("input")!;
+    vi.spyOn(canvas, "getBoundingClientRect").mockReturnValue(rect(220, 70, 20, 20));
+    vi.spyOn(field, "getBoundingClientRect").mockReturnValue(rect(220, 44, 100, 20));
+    expect(window.eval(challengeDiscoveryScript)).toBe(true);
+
+    document.body.innerHTML = `
+      <form>
+        <img id="captchaAudio" alt="speaker" src="data:image/png;base64,aA==">
+        <img id="captchaImage" alt="Código de segurança">
+        <input name="captcha" type="text">
+      </form>`;
+    for (const element of document.querySelectorAll("img, input")) {
+      vi.spyOn(element, "getBoundingClientRect").mockReturnValue(
+        element.tagName === "INPUT" ? rect(220, 44, 100, 20) : rect(220, 70, 20, 20),
+      );
+    }
+    expect(window.eval(challengeDiscoveryScript)).toBe(false);
+  });
   it("opens the allowlisted page and returns a bounded PNG challenge", async () => {
     const context = setup([
       {

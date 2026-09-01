@@ -1,6 +1,6 @@
 # ADR 0002 — Adotar uma base canônica com dois modos e entrega assíncrona de documentos
 
-**Status:** aceito
+**Status:** aceito; escolha de Firestore substituída pela [ADR 0016](./0016-managed-supabase-postgres.md)
 **Data:** 2026-08-29
 **Relacionado:** [Spec 0002 — Paridade funcional em acompanhamento processual](../specs/0002-process-monitoring-functional-parity.md)
 
@@ -25,7 +25,8 @@ Manteremos uma representação canônica de processo, evento, publicação e doc
 
 - Firebase Authentication fornecerá identidade de usuário;
 - autorização server-side usará escopo pessoal ou `organizationId` e papéis;
-- Firestore armazenará perfis, alvos, assinaturas, processos normalizados, estado de coleta, alertas e trabalhos;
+- Supabase PostgreSQL armazenará perfis, alvos, assinaturas, processos
+  normalizados, estado de coleta, alertas e trabalhos;
 - respostas originais, cache temporário e exportações ficarão em buckets privados do Cloud Storage;
 - toda infraestrutura será criada por Terraform e testada localmente com emuladores quando disponíveis.
 
@@ -102,7 +103,9 @@ Rejeitada por enquanto porque fila, retry e empacotamento são atendidos por Clo
 
 ### Mecanismo de busca dedicado desde o início
 
-Rejeitada até haver volume e consultas que Firestore e índices direcionados não atendam. Uma futura adoção dependerá de medição de latência, custo e necessidade de texto livre.
+Rejeitada até haver volume e consultas que PostgreSQL e índices direcionados não
+atendam. Uma futura adoção dependerá de medição de latência, custo e necessidade
+de texto livre.
 
 ## Critérios para revisar esta decisão
 

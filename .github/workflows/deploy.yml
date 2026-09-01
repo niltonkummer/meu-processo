@@ -70,6 +70,34 @@ jobs:
           node-version: "24.20.0"
           cache: npm
 
+      - name: Verify public GitHub OIDC trust claims
+        env:
+          OIDC_AUDIENCE: https://iam.googleapis.com/${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+        run: |
+          set -euo pipefail
+          oidc_token=$(curl --silent --show-error --fail-with-body --get \
+            --header "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            --data-urlencode "audience=${OIDC_AUDIENCE}" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL" | jq -er '.value')
+          payload=${oidc_token#*.}
+          payload=${payload%%.*}
+          payload=${payload//-/+}
+          payload=${payload//_/\/}
+          case $((${#payload} % 4)) in
+            2) payload="${payload}==" ;;
+            3) payload="${payload}=" ;;
+          esac
+          public_claims=$(printf '%s' "$payload" | base64 --decode | jq '{sub, repository, repository_id, repository_owner_id}')
+          jq . <<< "$public_claims"
+          jq -e \
+            --arg sub 'repo:niltonkummer@823477/meu-processo@1350848235:environment:validation' \
+            --arg repository 'niltonkummer/meu-processo' \
+            --arg repository_id '1350848235' \
+            --arg owner_id '823477' \
+            '.sub == $sub and .repository == $repository and .repository_id == $repository_id and .repository_owner_id == $owner_id' \
+            <<< "$public_claims" >/dev/null
+          unset oidc_token payload public_claims
+
       - name: Re-run release gates
         run: |
           npm ci --ignore-scripts
@@ -156,6 +184,9 @@ jobs:
           aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
           image --exit-code 1 --ignore-unfixed --severity HIGH,CRITICAL "$BROWSER_RENDERER_IMAGE_URI"
 
+      - name: Set up attestation-capable Docker builder
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
       - name: Publish immutable image with provenance and SBOM
         env:
           IMAGE_URI: ${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPOSITORY }}/app:${{ github.sha }}
@@ -163,32 +194,46 @@ jobs:
           VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.FIREBASE_AUTH_DOMAIN }}
           VITE_FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
           VITE_FIREBASE_APP_ID: ${{ vars.FIREBASE_APP_ID }}
-        run: >-
-          docker buildx build
-          --build-arg VITE_FIREBASE_BROWSER_KEY
-          --build-arg VITE_FIREBASE_AUTH_DOMAIN
-          --build-arg VITE_FIREBASE_PROJECT_ID
-          --build-arg VITE_FIREBASE_APP_ID
-          --target production
-          --platform linux/amd64
-          --provenance=true
-          --sbom=true
-          --tag "$IMAGE_URI"
-          --push
-          .
+        run: |
+          set -euo pipefail
+          if gcloud artifacts docker images describe "$IMAGE_URI" \
+            --project "$GCP_PROJECT_ID" \
+            --format='value(image_summary.digest)' >/dev/null 2>&1; then
+            echo "Reusing the immutable application image already published for this commit."
+          else
+            docker buildx build \
+              --build-arg VITE_FIREBASE_BROWSER_KEY \
+              --build-arg VITE_FIREBASE_AUTH_DOMAIN \
+              --build-arg VITE_FIREBASE_PROJECT_ID \
+              --build-arg VITE_FIREBASE_APP_ID \
+              --target production \
+              --platform linux/amd64 \
+              --provenance=true \
+              --sbom=true \
+              --tag "$IMAGE_URI" \
+              --push \
+              .
+          fi
 
       - name: Publish immutable browser renderer with provenance and SBOM
         env:
           BROWSER_RENDERER_IMAGE_URI: ${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPOSITORY }}/renderer:${{ github.sha }}
-        run: >-
-          docker buildx build
-          --target renderer
-          --platform linux/amd64
-          --provenance=true
-          --sbom=true
-          --tag "$BROWSER_RENDERER_IMAGE_URI"
-          --push
-          .
+        run: |
+          set -euo pipefail
+          if gcloud artifacts docker images describe "$BROWSER_RENDERER_IMAGE_URI" \
+            --project "$GCP_PROJECT_ID" \
+            --format='value(image_summary.digest)' >/dev/null 2>&1; then
+            echo "Reusing the immutable renderer image already published for this commit."
+          else
+            docker buildx build \
+              --target renderer \
+              --platform linux/amd64 \
+              --provenance=true \
+              --sbom=true \
+              --tag "$BROWSER_RENDERER_IMAGE_URI" \
+              --push \
+              .
+          fi
 
       - name: Initialize remote Terraform state
         working-directory: infra/terraform
@@ -211,6 +256,8 @@ jobs:
           -var="image_uri=$IMAGE_URI"
           -var="browser_renderer_image_uri=$BROWSER_RENDERER_IMAGE_URI"
           -var="public_access_enabled=$PUBLIC_ACCESS_ENABLED"
+          -var="managed_foundation_enabled=true"
+          -var="managed_foundation_acknowledgement=APPROVED_VALIDATION_ROLLOUT_0040"
 
       - name: Apply the reviewed plan
         working-directory: infra/terraform
@@ -275,3 +322,31 @@ jobs:
             echo "::error::Cloud Run became public during the private rollout phase."
             exit 1
           fi
+
+      - name: Verify passive managed foundation
+        run: |
+          set -euo pipefail
+          bucket="${GCP_PROJECT_ID}-process-objects-${DEPLOY_ENVIRONMENT}"
+
+          bucket_config=$(gcloud storage buckets describe "gs://${bucket}" \
+            --project "$GCP_PROJECT_ID" \
+            --format=json)
+          jq -e --arg bucket "$bucket" \
+            '.name == $bucket and .public_access_prevention == "enforced" and .uniform_bucket_level_access == true' \
+            <<< "$bucket_config" >/dev/null
+
+          for workload in dispatcher document lifecycle monitoring scheduler; do
+            gcloud iam service-accounts describe \
+              "meu-processo-${workload}@${GCP_PROJECT_ID}.iam.gserviceaccount.com" \
+              --project "$GCP_PROJECT_ID" \
+              --format=json \
+              | jq -e '(.disabled // false) == false' >/dev/null
+          done
+
+          secret_count=$(gcloud secrets list \
+            --project "$GCP_PROJECT_ID" \
+            --filter="name:meu-processo-${DEPLOY_ENVIRONMENT}-" \
+            --format='value(name)' \
+            | wc -l \
+            | tr -d ' ')
+          [[ "$secret_count" == "7" ]]

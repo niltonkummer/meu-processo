@@ -20,5 +20,11 @@
     "target": "ES2024",
     "types": ["vitest/globals", "@testing-library/jest-dom"]
   },
-  "include": ["src", "web/src", "vite.config.ts", "vitest.config.ts"]
+  "include": [
+    "src",
+    "web/src",
+    "vite.config.ts",
+    "vitest.config.ts",
+    "vitest.database.config.ts"
+  ]
 }

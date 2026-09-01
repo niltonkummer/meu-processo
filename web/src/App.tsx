@@ -1,16 +1,25 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 
 import { AccountAccess } from "./AccountAccess";
+import { ActivityCenter } from "./ActivityCenter";
+import { AccountDataControls } from "./AccountDataControls";
+import { BillingPanel } from "./BillingPanel";
 import type { AuthClient, AuthenticatedWebSession } from "./auth-client";
 import {
   openDocumentSession,
   type DocumentSessionControl,
 } from "./document-session-client";
+import { downloadPublicationCopy as requestPublicationCopy } from "./publication-copy-client";
 import {
-  loadTargets,
-  saveTarget,
-  type StoredTarget,
-  type StoredTargetType,
+  archiveMonitoringProfile,
+  createMonitoringProfile,
+  listMonitoringProfiles,
+  type MonitoringProfile,
+  type MonitoringProfileType,
+  SafeMonitoringProfileError,
+} from "./monitoring-profile-client";
+import {
+  clearLegacyTargets,
 } from "./target-storage";
 
 interface SearchPublication {
@@ -37,7 +46,7 @@ interface SearchProcess {
 interface SearchResponse {
   target: {
     id: string;
-    type: StoredTargetType;
+    type: MonitoringProfileType;
     displayValue: string;
   };
   source: {
@@ -68,9 +77,14 @@ interface PublicationChallenge {
   answer: string;
 }
 
+interface DocumentSessionStatus {
+  operationId: string;
+  message: string;
+}
+
 type ViewMode = "simple" | "advanced";
 
-const labels: Record<StoredTargetType, { input: string; placeholder: string }> = {
+const labels: Record<MonitoringProfileType, { input: string; placeholder: string }> = {
   name: { input: "Nome completo", placeholder: "Ex.: Maria da Silva" },
   cpf: { input: "Número do CPF", placeholder: "000.000.000-00" },
   cnpj: { input: "Número do CNPJ", placeholder: "00.000.000/0000-00" },
@@ -144,36 +158,99 @@ export function App({
   saveFile?: (blob: Blob, fileName: string) => void;
   openSession?: typeof openDocumentSession;
 }) {
-  const [type, setType] = useState<StoredTargetType>("name");
+  const [type, setType] = useState<MonitoringProfileType>("name");
   const [value, setValue] = useState("");
-  const [targets, setTargets] = useState<StoredTarget[]>(() => loadTargets(storage));
+  const [profiles, setProfiles] = useState<readonly MonitoringProfile[]>([]);
+  const [profilesLoading, setProfilesLoading] = useState(false);
+  const [profileUpdatingId, setProfileUpdatingId] = useState("");
   const [result, setResult] = useState<SearchResponse>();
+  const [searchHistory, setSearchHistory] = useState<readonly SearchResponse[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("simple");
   const [authSession, setAuthSession] = useState<AuthenticatedWebSession>();
   const [selectedProcess, setSelectedProcess] = useState<SearchProcess>();
   const [downloadingPublication, setDownloadingPublication] = useState("");
+  const [downloadingPublicationCopy, setDownloadingPublicationCopy] = useState("");
   const [publicationChallenge, setPublicationChallenge] =
     useState<PublicationChallenge>();
+  const [documentStatus, setDocumentStatus] =
+    useState<DocumentSessionStatus>();
   const documentSession = useRef<DocumentSessionControl | undefined>(undefined);
+  const profileLoadGeneration = useRef(0);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    clearLegacyTargets(storage);
+    return () => {
       documentSession.current?.close();
-    },
-    [],
-  );
+    };
+  }, [storage]);
 
-  const runSearch = async (targetType: StoredTargetType, targetValue: string) => {
+  const loadProfiles = async (
+    session: AuthenticatedWebSession,
+    generation: number,
+  ) => {
+    setProfilesLoading(true);
+    try {
+      const token = await session.getIdToken();
+      const loaded = await listMonitoringProfiles(fetcher, token);
+      if (profileLoadGeneration.current === generation) setProfiles(loaded);
+    } catch (caught) {
+      if (profileLoadGeneration.current === generation) {
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "Não foi possível carregar seus perfis monitorados.",
+        );
+      }
+    } finally {
+      if (profileLoadGeneration.current === generation) setProfilesLoading(false);
+    }
+  };
+
+  const runSearch = async (
+    targetType: MonitoringProfileType,
+    targetValue: string,
+  ) => {
     if (!authSession) {
       setError("Entre na sua conta para consultar a fonte oficial.");
       return;
     }
     setLoading(true);
     setError("");
+    let createdProfile: MonitoringProfile | undefined;
     try {
       const token = await authSession.getIdToken();
+      try {
+        const profile = await createMonitoringProfile(fetcher, token, {
+          type: targetType,
+          value: targetValue,
+        });
+        createdProfile = profile;
+        setProfiles((current) => [
+          profile,
+          ...current.filter((item) => item.subjectId !== profile.subjectId),
+        ]);
+      } catch (caught) {
+        if (
+          caught instanceof SafeMonitoringProfileError &&
+          caught.code === "MONITORING_PROFILE_CONFLICT"
+        ) {
+          const loaded = await listMonitoringProfiles(fetcher, token);
+          setProfiles(loaded);
+        } else if (
+          caught instanceof SafeMonitoringProfileError &&
+          caught.code === "MONITORING_PROFILES_UNAVAILABLE"
+        ) {
+          // Validation can keep the official one-off consultation available
+          // before the persistent PostgreSQL monitoring runtime is activated.
+          // Only this explicit server capability signal is allowed to degrade;
+          // validation, authorization and tenant errors still fail closed.
+          createdProfile = undefined;
+        } else {
+          throw caught;
+        }
+      }
       const response = await fetcher("/api/v1/searches", {
         method: "POST",
         headers: {
@@ -190,14 +267,31 @@ export function App({
       if (!isSearchResponse(body)) throw new Error("Resposta inesperada da fonte.");
 
       setResult(body);
+      setSearchHistory((current) => [
+        body,
+        ...current.filter((item) => item.target.id !== body.target.id),
+      ].slice(0, 20));
+      if (createdProfile) {
+        const profileId = createdProfile.subjectId;
+        setProfiles((current) =>
+          current.map((profile) =>
+            profile.subjectId === profileId
+              ? {
+                  ...profile,
+                  processCount: body.summary.processes,
+                  processSummary: body.processes.slice(0, 3).map((process) => ({
+                    cnjNumber: process.cnjNumber,
+                    tribunal: process.tribunal ?? "BR",
+                    lastActivityAt: process.lastPublicationAt
+                      ? `${process.lastPublicationAt}T12:00:00.000Z`
+                      : "1970-01-01T00:00:00.000Z",
+                  })),
+                }
+              : profile,
+          ),
+        );
+      }
       setSelectedProcess(undefined);
-      saveTarget(storage, {
-        id: body.target.id,
-        type: targetType,
-        value: targetValue,
-        displayValue: body.target.displayValue,
-      });
-      setTargets(loadTargets(storage));
     } catch (caught) {
       setResult(undefined);
       setError(
@@ -215,26 +309,85 @@ export function App({
     void runSearch(type, value);
   };
 
-  const reuseTarget = (target: StoredTarget) => {
-    setType(target.type);
-    setValue(target.value);
-    void runSearch(target.type, target.value);
-  };
-
   const changeSession = (session: AuthenticatedWebSession | undefined) => {
+    const generation = profileLoadGeneration.current + 1;
+    profileLoadGeneration.current = generation;
     setAuthSession(session);
-    if (!session) {
+    if (session) {
+      setError("");
+      void loadProfiles(session, generation);
+    } else {
       documentSession.current?.close();
       documentSession.current = undefined;
+      setProfiles([]);
+      setProfilesLoading(false);
       setResult(undefined);
+      setSearchHistory([]);
       setSelectedProcess(undefined);
       setDownloadingPublication("");
       setPublicationChallenge(undefined);
+      setDocumentStatus(undefined);
       setError("");
     }
   };
 
-  const downloadPublication = async (
+  const archiveProfile = async (profile: MonitoringProfile) => {
+    if (!authSession) return;
+    setProfileUpdatingId(profile.subjectId);
+    setError("");
+    try {
+      const token = await authSession.getIdToken();
+      await archiveMonitoringProfile(fetcher, token, profile);
+      setProfiles((current) =>
+        current.filter((item) => item.subjectId !== profile.subjectId),
+      );
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Não foi possível arquivar o perfil.",
+      );
+    } finally {
+      setProfileUpdatingId("");
+    }
+  };
+
+  const downloadPublicationCopy = async (
+    process: SearchProcess,
+    publication: SearchPublication,
+  ) => {
+    if (!authSession || publication.communicationNumber === undefined) {
+      setError("Entre na sua conta para baixar a cópia da publicação.");
+      return;
+    }
+
+    const operationId = `${process.cnjNumber}:${publication.communicationNumber}`;
+    setDownloadingPublicationCopy(operationId);
+    setDocumentStatus({ operationId, message: "Preparando cópia do DJEN…" });
+    setError("");
+    try {
+      const token = await authSession.getIdToken();
+      const document = await requestPublicationCopy(
+        fetcher,
+        token,
+        cnjDigits(process.cnjNumber),
+        publication.communicationNumber,
+      );
+      saveFile(document.blob, document.fileName);
+      setDocumentStatus({ operationId, message: "Cópia DJEN baixada." });
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Não foi possível preparar a cópia da publicação.",
+      );
+      setDocumentStatus(undefined);
+    } finally {
+      setDownloadingPublicationCopy("");
+    }
+  };
+
+  const downloadOriginalPublication = async (
     process: SearchProcess,
     publication: SearchPublication,
   ) => {
@@ -245,6 +398,10 @@ export function App({
 
     const operationId = `${process.cnjNumber}:${publication.communicationNumber}`;
     setDownloadingPublication(operationId);
+    setDocumentStatus({
+      operationId,
+      message: "Conectando ao worker brasileiro…",
+    });
     documentSession.current?.close();
     documentSession.current = undefined;
     setPublicationChallenge(undefined);
@@ -255,7 +412,13 @@ export function App({
         path: `/api/v1/processes/${cnjDigits(process.cnjNumber)}/communications/${publication.communicationNumber}/document/session`,
         token,
         callbacks: {
-          onStatus: () => setDownloadingPublication(operationId),
+          onStatus: () => {
+            setDownloadingPublication(operationId);
+            setDocumentStatus({
+              operationId,
+              message: "Aguardando resposta do tribunal…",
+            });
+          },
           onChallenge: (challenge) => {
             setDownloadingPublication("");
             setPublicationChallenge({
@@ -263,6 +426,10 @@ export function App({
               imageDataUrl: challenge.imageDataUrl,
               expiresAt: challenge.expiresAt,
               answer: "",
+            });
+            setDocumentStatus({
+              operationId,
+              message: "Aguardando o código de segurança.",
             });
             if (challenge.rejected) {
               setError("O código não foi aceito. Tente novamente com a nova imagem.");
@@ -272,12 +439,17 @@ export function App({
             saveFile(document.blob, document.fileName);
             setPublicationChallenge(undefined);
             setDownloadingPublication("");
+            setDocumentStatus({
+              operationId,
+              message: "Download concluído.",
+            });
             documentSession.current = undefined;
           },
           onError: (code) => {
             setError(documentSessionError(code));
             setPublicationChallenge(undefined);
             setDownloadingPublication("");
+            setDocumentStatus(undefined);
             documentSession.current = undefined;
           },
         },
@@ -289,16 +461,26 @@ export function App({
           : "Não foi possível abrir a publicação.",
       );
       setDownloadingPublication("");
+      setDocumentStatus(undefined);
     }
   };
 
   const completePublicationChallenge = (event: FormEvent) => {
     event.preventDefault();
     if (!authSession || !publicationChallenge) return;
+    const answer = publicationChallenge.answer.trim();
+    if (!answer) {
+      setError("Digite o código de segurança exibido pelo tribunal.");
+      return;
+    }
     setDownloadingPublication(publicationChallenge.operationId);
+    setDocumentStatus({
+      operationId: publicationChallenge.operationId,
+      message: "Validando o código no tribunal…",
+    });
     setError("");
     try {
-      documentSession.current?.answer(publicationChallenge.answer);
+      documentSession.current?.answer(answer);
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -306,11 +488,16 @@ export function App({
           : "Não foi possível validar o código de segurança.",
       );
       setDownloadingPublication("");
+      setDocumentStatus({
+        operationId: publicationChallenge.operationId,
+        message: "Revise o código e tente novamente.",
+      });
     }
   };
 
   return (
     <div className="app-shell">
+      <a className="skip-link" href="#top">Ir para o conteúdo principal</a>
       <header className="topbar">
         <a className="brand" href="#top" aria-label="Meu Processo — início">
           <span className="brand-mark" aria-hidden="true">MP</span>
@@ -348,8 +535,8 @@ export function App({
           <h1 id="page-title">Encontre publicações. Confirme cada processo.</h1>
           <p className="hero-copy">
             Consulte o Diário de Justiça Eletrônico Nacional e veja as publicações
-            agrupadas pelo número único do processo, sem criar uma base central com
-            seus dados nesta etapa.
+            agrupadas pelo número único do processo. Seus perfis ficam vinculados à
+            conta com identificadores protegidos e rótulos minimizados.
           </p>
         </section>
 
@@ -380,14 +567,19 @@ export function App({
             <div className="search-row">
               <input
                 id="target-value"
+                name="target-value"
                 value={value}
                 onChange={(event) => setValue(event.target.value)}
                 placeholder={labels[type].placeholder}
                 autoComplete="off"
                 required
               />
-              <button type="submit" disabled={loading}>
-                {loading ? "Consultando…" : "Cadastrar e buscar"}
+              <button type="submit" disabled={loading || profilesLoading}>
+                {loading
+                  ? "Consultando…"
+                  : profilesLoading
+                    ? "Carregando conta…"
+                    : "Cadastrar e buscar"}
               </button>
             </div>
 
@@ -398,25 +590,60 @@ export function App({
               </p>
             )}
             <p className="privacy-note">
-              Os alvos ficam somente neste navegador. O servidor não mantém cadastro
-              nem histórico nesta validação.
+              O navegador não grava o nome ou documento informado. A conta recebe
+              somente um rótulo minimizado; o identificador é cifrado no servidor.
             </p>
           </form>
 
           <aside className="saved-panel" aria-labelledby="saved-title">
             <div className="panel-heading">
-              <h2 id="saved-title">Alvos neste navegador</h2>
-              <span>{targets.length}</span>
+              <h2 id="saved-title">Perfis monitorados</h2>
+              <span>{profiles.length}</span>
             </div>
-            {targets.length === 0 ? (
-              <p className="empty-copy">Nenhum alvo cadastrado ainda.</p>
+            {profilesLoading ? (
+              <p className="empty-copy" role="status">Carregando perfis…</p>
+            ) : profiles.length === 0 ? (
+              <p className="empty-copy">Nenhum perfil ativo cadastrado.</p>
             ) : (
               <ul className="target-list">
-                {targets.map((target) => (
-                  <li key={target.id}>
-                    <button type="button" onClick={() => reuseTarget(target)}>
-                      <span>{target.type === "name" ? "Nome" : target.type.toUpperCase()}</span>
-                      <strong>{target.displayValue}</strong>
+                {profiles.map((profile) => (
+                  <li key={profile.subjectId}>
+                    <div className="profile-summary">
+                      <span>
+                        {profile.subjectType === "name"
+                          ? "Nome"
+                          : profile.subjectType.toUpperCase()}
+                      </span>
+                      <strong>{profile.displayLabel}</strong>
+                      <small>
+                        {profile.processCount === 1
+                          ? "1 processo encontrado"
+                          : `${profile.processCount} processos encontrados`}
+                      </small>
+                      {profile.processSummary.length > 0 ? (
+                        <ul className="profile-process-summary">
+                          {profile.processSummary.map((process) => (
+                            <li key={`${profile.subjectId}:${process.cnjNumber}`}>
+                              {process.cnjNumber} · {process.tribunal}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <small className="profile-awaiting">
+                          Aguardando a primeira atualização.
+                        </small>
+                      )}
+                    </div>
+                    <button
+                      className="profile-archive"
+                      type="button"
+                      disabled={profileUpdatingId === profile.subjectId}
+                      onClick={() => void archiveProfile(profile)}
+                      aria-label={`Arquivar perfil ${profile.displayLabel}`}
+                    >
+                      {profileUpdatingId === profile.subjectId
+                        ? "Arquivando…"
+                        : "Arquivar"}
                     </button>
                   </li>
                 ))}
@@ -434,6 +661,51 @@ export function App({
 
         {error && <p className="error-banner" role="alert">{error}</p>}
 
+        {searchHistory.length > 0 ? (
+          <section className="search-history" aria-labelledby="search-history-title">
+            <div className="search-history-heading">
+              <div>
+                <span className="eyebrow">Resultados agrupados</span>
+                <h2 id="search-history-title">Consultas desta sessão</h2>
+              </div>
+              <span>{searchHistory.length}</span>
+            </div>
+            <ul>
+              {searchHistory.map((search) => (
+                <li key={search.target.id}>
+                  <button
+                    type="button"
+                    aria-label={`Abrir consulta de ${search.target.displayValue}`}
+                    onClick={() => {
+                      setResult(search);
+                      setSelectedProcess(undefined);
+                    }}
+                  >
+                    <span className="search-history-main">
+                      <strong>{search.target.displayValue}</strong>
+                      <span>
+                        {search.summary.processes === 1
+                          ? "1 processo"
+                          : `${search.summary.processes} processos`}
+                      </span>
+                    </span>
+                    <span className="search-history-summary">
+                      {search.processes.length > 0
+                        ? search.processes
+                            .slice(0, 3)
+                            .map((process) =>
+                              `${process.cnjNumber} · ${process.tribunal ?? "Tribunal não informado"}`
+                            )
+                            .join(" | ")
+                        : "Nenhum processo agrupável nesta consulta."}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
         {result && (
           <section className="results" aria-labelledby="results-title">
             <div className="results-heading">
@@ -450,6 +722,20 @@ export function App({
             {result.warnings.map((warning) => (
               <p className="warning-banner" key={warning}>{warning}</p>
             ))}
+
+            <aside className="process-radar" aria-labelledby="process-radar-title">
+              <div>
+                <span className="eyebrow">Radar Processual</span>
+                <h3 id="process-radar-title">O que esta consulta conseguiu enxergar</h3>
+                <p>Indícios da busca atual, não uma certidão negativa nem confirmação de identidade.</p>
+              </div>
+              <dl>
+                <div><dt>Processos agrupados</dt><dd>{result.summary.processes}</dd></div>
+                <div><dt>Tribunais identificados</dt><dd>{new Set(result.processes.map((item) => item.tribunal).filter(Boolean)).size}</dd></div>
+                <div><dt>Confiança da estratégia</dt><dd>{result.source.confidence === "medium" ? "Moderada" : "Experimental"}</dd></div>
+                <div><dt>Publicações sem processo</dt><dd>{result.summary.ungroupedPublications}</dd></div>
+              </dl>
+            </aside>
 
             {result.processes.length === 0 ? (
               <div className="empty-result">
@@ -481,6 +767,8 @@ export function App({
                           setSelectedProcess(undefined);
                           setPublicationChallenge(undefined);
                           setDownloadingPublication("");
+                          setDownloadingPublicationCopy("");
+                          setDocumentStatus(undefined);
                         }}
                       >
                         Fechar detalhe
@@ -498,21 +786,48 @@ export function App({
                           <div className="publication" key={publication.id}>
                             <time>{formatDate(publication.availableAt)}</time>
                             <p>{publication.summary || "Texto não informado pela fonte."}</p>
-                            {publication.documentAvailable &&
-                            publication.communicationNumber !== undefined ? (
+                            {publication.communicationNumber !== undefined ? (
                               <>
                                 <button
                                   className="proxy-download"
                                   type="button"
-                                  disabled={downloadingPublication === operationId}
+                                  disabled={downloadingPublicationCopy === operationId}
                                   onClick={() =>
-                                    void downloadPublication(selectedProcess, publication)
+                                    void downloadPublicationCopy(selectedProcess, publication)
                                   }
                                 >
-                                  {downloadingPublication === operationId
-                                    ? "Abrindo pelo Brasil…"
-                                    : "Baixar publicação pelo proxy"}
+                                  {downloadingPublicationCopy === operationId
+                                    ? "Preparando cópia…"
+                                    : "Baixar cópia da publicação"}
                                 </button>
+                                <small className="copy-disclaimer">
+                                  Reprodução do texto oficial do DJEN; não substitui o original do tribunal.
+                                </small>
+                                {publication.documentAvailable ? (
+                                  <button
+                                    className="original-download"
+                                    type="button"
+                                    disabled={downloadingPublication === operationId}
+                                    onClick={() =>
+                                      void downloadOriginalPublication(
+                                        selectedProcess,
+                                        publication,
+                                      )
+                                    }
+                                  >
+                                    {downloadingPublication === operationId
+                                      ? "Abrindo pelo Brasil…"
+                                      : "Tentar documento original (experimental)"}
+                                  </button>
+                                ) : null}
+                                {documentStatus?.operationId === operationId ? (
+                                  <p
+                                    className="document-session-status"
+                                    aria-live="polite"
+                                  >
+                                    {documentStatus.message}
+                                  </p>
+                                ) : null}
                                 {publicationChallenge?.operationId === operationId ? (
                                   <form
                                     className="document-challenge"
@@ -529,6 +844,8 @@ export function App({
                                     <img
                                       src={publicationChallenge.imageDataUrl}
                                       alt="Código de segurança exibido pelo tribunal"
+                                      width="220"
+                                      height="120"
                                     />
                                     <label htmlFor={`challenge-${operationId}`}>
                                       Código de segurança
@@ -536,9 +853,11 @@ export function App({
                                     <div className="challenge-actions">
                                       <input
                                         id={`challenge-${operationId}`}
+                                        name="challenge-answer"
                                         value={publicationChallenge.answer}
                                         maxLength={32}
                                         autoComplete="off"
+                                        spellCheck={false}
                                         pattern="[A-Za-z0-9]+"
                                         required
                                         onChange={(event) =>
@@ -570,6 +889,7 @@ export function App({
                                             documentSession.current = undefined;
                                             setPublicationChallenge(undefined);
                                             setDownloadingPublication("");
+                                            setDocumentStatus(undefined);
                                           }
                                         }
                                       >
@@ -581,7 +901,7 @@ export function App({
                               </>
                             ) : (
                               <span className="document-unavailable">
-                                Documento não disponível para proxy seguro.
+                                Publicação sem identificador para gerar a cópia.
                               </span>
                             )}
                           </div>
@@ -600,9 +920,9 @@ export function App({
                 <div className="portfolio-intro">
                   <div>
                     <span className="court">Visão profissional</span>
-                    <h3>Carteira avançada</h3>
+                    <h3>Resultado técnico da consulta atual</h3>
                   </div>
-                  <p>Os mesmos fatos da visão simples, organizados para conferência rápida.</p>
+                  <p>Validação pontual da fonte oficial; a carteira monitorada permanece acima.</p>
                 </div>
                 <div className="table-scroll" tabIndex={0} aria-label="Tabela da carteira de processos">
                   <table className="portfolio-table">
@@ -693,9 +1013,12 @@ export function App({
                             </dl>
                           )}
                           <p>{publication.summary || "Texto não informado pela fonte."}</p>
-                          {publication.documentAvailable ? (
+                          {publication.communicationNumber !== undefined ? (
                             <span className="proxy-available">
-                              Documento disponível pelo proxy brasileiro
+                              Cópia PDF do DJEN disponível
+                              {publication.documentAvailable
+                                ? " · original experimental"
+                                : ""}
                             </span>
                           ) : null}
                         </div>
@@ -714,10 +1037,28 @@ export function App({
             )}
           </section>
         )}
+
+        {authSession ? (
+          <>
+            <ActivityCenter
+              session={authSession}
+              fetcher={fetcher}
+              viewMode={viewMode}
+              profileCount={profiles.filter((profile) => profile.status === "active").length}
+              profilesLoading={profilesLoading}
+            />
+            <BillingPanel fetcher={fetcher} session={authSession} />
+            <AccountDataControls
+              fetcher={fetcher}
+              session={authSession}
+              saveFile={saveFile}
+            />
+          </>
+        ) : null}
       </main>
 
       <footer>
-        <span>Validação técnica · dados não persistidos no servidor</span>
+        <span>Perfis protegidos · respostas privadas e sem cache</span>
         <span>Confirme informações críticas no tribunal de origem.</span>
       </footer>
     </div>

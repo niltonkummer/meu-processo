@@ -3,6 +3,7 @@ locals {
     application = "meu-processo"
     environment = var.environment
     managed_by  = "terraform"
+    service     = "meu-processo"
   }
 
   required_services = toset([
@@ -12,8 +13,12 @@ locals {
     "cloudkms.googleapis.com",
     "firebase.googleapis.com",
     "iam.googleapis.com",
+    "iamcredentials.googleapis.com",
     "identitytoolkit.googleapis.com",
     "run.googleapis.com",
+    "secretmanager.googleapis.com",
+    "sts.googleapis.com",
+    "storage.googleapis.com",
   ])
 }
 
@@ -129,6 +134,7 @@ resource "google_kms_crypto_key" "artifact_registry" {
   name            = "artifact-registry"
   key_ring        = google_kms_key_ring.artifact_registry.id
   rotation_period = "7776000s"
+  labels          = local.labels
 
   lifecycle {
     prevent_destroy = true
@@ -194,8 +200,11 @@ resource "google_cloud_run_v2_service" "app" {
   invoker_iam_disabled = var.public_access_enabled
 
   template {
-    service_account                  = google_service_account.runtime.email
-    timeout                          = "45s"
+    service_account = google_service_account.runtime.email
+    # The application keeps an authenticated WebSocket open while the user
+    # answers the tribunal challenge. Leave bounded infrastructure headroom
+    # beyond the 120-second application session timeout.
+    timeout                          = "180s"
     max_instance_request_concurrency = 20
     execution_environment            = "EXECUTION_ENVIRONMENT_GEN2"
     session_affinity                 = true
@@ -239,6 +248,42 @@ resource "google_cloud_run_v2_service" "app" {
         value = "google-id-token"
       }
 
+      dynamic "env" {
+        for_each = var.commercial_billing_enabled ? {
+          APPLICATION_PUBLIC_URL = var.commercial_application_public_url
+          BILLING_MODE           = "stripe-test"
+          STRIPE_PERSON_PRICE_ID = var.stripe_person_price_id
+        } : {}
+
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
+
+      dynamic "env" {
+        for_each = var.commercial_billing_enabled ? {
+          BILLING_WEBHOOK_CONFIG_JSON = {
+            secret_key = "billing_webhook_config"
+            version    = var.billing_webhook_config_secret_version
+          }
+          STRIPE_SECRET_KEY = {
+            secret_key = "stripe_secret_key"
+            version    = var.stripe_secret_key_version
+          }
+        } : {}
+
+        content {
+          name = env.key
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.managed[env.value.secret_key].secret_id
+              version = env.value.version
+            }
+          }
+        }
+      }
+
       resources {
         cpu_idle = true
         limits = {
@@ -278,6 +323,7 @@ resource "google_cloud_run_v2_service" "app" {
   depends_on = [
     google_artifact_registry_repository.app,
     google_project_service.required,
+    google_secret_manager_secret_iam_member.managed_accessor,
   ]
 }
 
@@ -291,8 +337,10 @@ resource "google_cloud_run_v2_service" "browser_renderer" {
   invoker_iam_disabled = false
 
   template {
-    service_account                  = google_service_account.browser_renderer.email
-    timeout                          = "120s"
+    service_account = google_service_account.browser_renderer.email
+    # The renderer session expires internally after 120 seconds. Cloud Run
+    # must not terminate the WebSocket before that controlled shutdown.
+    timeout                          = "180s"
     max_instance_request_concurrency = 1
     execution_environment            = "EXECUTION_ENVIRONMENT_GEN2"
     session_affinity                 = false

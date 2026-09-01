@@ -13,6 +13,7 @@ interface FirebaseDecodedToken {
   uid?: unknown;
   email?: unknown;
   email_verified?: unknown;
+  auth_time?: unknown;
 }
 
 export interface FirebaseAuthClient {
@@ -37,7 +38,10 @@ export class FirebaseIdentityTokenDecoder implements IdentityTokenDecoder {
     if (
       typeof decoded.uid !== "string" ||
       typeof decoded.email !== "string" ||
-      typeof decoded.email_verified !== "boolean"
+      typeof decoded.email_verified !== "boolean" ||
+      typeof decoded.auth_time !== "number" ||
+      !Number.isSafeInteger(decoded.auth_time) ||
+      decoded.auth_time < 0
     ) {
       throw new InvalidFirebaseIdentityError();
     }
@@ -46,6 +50,7 @@ export class FirebaseIdentityTokenDecoder implements IdentityTokenDecoder {
       userId: decoded.uid,
       email: decoded.email,
       emailVerified: decoded.email_verified,
+      authenticatedAt: new Date(decoded.auth_time * 1000),
     };
   }
 }

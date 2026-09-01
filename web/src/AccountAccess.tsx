@@ -81,6 +81,10 @@ export function AccountAccess({
       onSessionChange({
         email: user.email,
         getIdToken: () => user.getIdToken(),
+        ...(user.reauthenticate
+          ? { reauthenticate: (currentPassword: string) => user.reauthenticate!(currentPassword) }
+          : {}),
+        terminate: () => logout(),
       });
       setPassword("");
       setOpen(false);

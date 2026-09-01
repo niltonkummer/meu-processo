@@ -4,3 +4,17 @@ environment  = "validation"
 service_name = "meu-processo-mvp"
 image_uri    = "southamerica-east1-docker.pkg.dev/meu-processo-507018/meu-processo/app:0123456789abcdef"
 browser_renderer_image_uri = "southamerica-east1-docker.pkg.dev/meu-processo-507018/meu-processo/renderer:0123456789abcdef"
+
+# Plan-only opt-in. This does not authorize terraform apply.
+# managed_foundation_enabled         = true
+# managed_foundation_acknowledgement = "PLAN_ONLY_NO_APPLY"
+# process_object_bucket_name         = "globally-unique-private-bucket-name"
+
+# Commercial MVP plan-only gate. Secret values remain in Infisical and are
+# projected to these two Secret Manager containers outside Terraform state.
+# commercial_billing_enabled                   = true
+# commercial_billing_acknowledgement           = "PLAN_ONLY_NO_APPLY"
+# commercial_application_public_url            = "https://validation.example.com"
+# stripe_person_price_id                       = "price_TEST_PRICE_ID"
+# stripe_secret_key_version                    = "1"
+# billing_webhook_config_secret_version        = "1"

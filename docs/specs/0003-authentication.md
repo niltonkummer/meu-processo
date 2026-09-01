@@ -35,7 +35,8 @@ usuário ou organização.
 
 - telefone/SMS, login anônimo, provedores sociais, SAML ou OIDC;
 - recuperação de senha e MFA, que serão especificados antes do piloto externo;
-- persistência de usuários, convites e organizações no Firestore;
+- persistência de usuários, convites e organizações (agora planejada no
+  Supabase PostgreSQL conforme ADR 0016);
 - exposição pública do Cloud Run, Firebase Hosting ou deploy;
 - migração de contas existentes;
 - autorização baseada apenas em controles visuais.

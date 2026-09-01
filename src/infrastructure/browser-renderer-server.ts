@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 
 import { WebSocket, WebSocketServer } from "ws";
@@ -9,6 +10,26 @@ import {
 import { websocketDataToText } from "./websocket-data.js";
 
 const MAX_CONTROL_FRAME_BYTES = 16 * 1024;
+const SAFE_SESSION_OUTCOMES = new Set([
+  "cancelled",
+  "complete",
+  "document_integrity_rejected",
+  "invalid_challenge_answer",
+  "session_expired",
+  "source_policy_rejected",
+  "source_unavailable",
+]);
+
+interface RendererSessionClosedEvent {
+  event: "document_renderer_session_closed";
+  correlationId: string;
+  outcome: string;
+  durationMs: number;
+}
+
+export const writeRendererSessionEvent = (
+  event: RendererSessionClosedEvent,
+): void => console.log(JSON.stringify(event));
 
 const schedule = (callback: () => void, delayMs: number): (() => void) => {
   const timer = setTimeout(callback, delayMs);
@@ -27,8 +48,10 @@ const rejectUpgrade = (
 
 export const createBrowserRendererServer = ({
   driverFactory,
+  logEvent = writeRendererSessionEvent,
 }: {
   driverFactory: BrowserChallengeDriverFactory;
+  logEvent?: (event: RendererSessionClosedEvent) => void;
 }) => {
   const server = createServer((request, response) => {
     response.setHeader("cache-control", "no-store");
@@ -67,6 +90,19 @@ export const createBrowserRendererServer = ({
       return;
     }
     active = true;
+    const correlationId = randomUUID();
+    const startedAt = Date.now();
+    let outcomeRecorded = false;
+    const recordOutcome = (reason: string) => {
+      if (outcomeRecorded) return;
+      outcomeRecorded = true;
+      logEvent({
+        event: "document_renderer_session_closed",
+        correlationId,
+        outcome: SAFE_SESSION_OUTCOMES.has(reason) ? reason : "closed",
+        durationMs: Math.max(0, Date.now() - startedAt),
+      });
+    };
     const session = new BrowserRendererSession(
       {
         sendJson: (value) => {
@@ -79,7 +115,10 @@ export const createBrowserRendererServer = ({
             socket.send(value, { binary: true });
           }
         },
-        close: (code, reason) => socket.close(code, reason),
+        close: (code, reason) => {
+          recordOutcome(reason);
+          socket.close(code, reason);
+        },
       },
       driverFactory,
       { schedule },
@@ -87,16 +126,21 @@ export const createBrowserRendererServer = ({
 
     socket.on("message", (data, isBinary) => {
       if (isBinary) {
+        recordOutcome("source_policy_rejected");
         socket.close(1003, "binary_control_frame");
         return;
       }
       void session.receiveText(websocketDataToText(data));
     });
     socket.once("close", () => {
+      recordOutcome("cancelled");
       session.close();
       active = false;
     });
-    socket.once("error", () => socket.close(1011, "socket_error"));
+    socket.once("error", () => {
+      recordOutcome("source_unavailable");
+      socket.close(1011, "socket_error");
+    });
   });
 
   return server;

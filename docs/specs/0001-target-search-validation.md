@@ -1,7 +1,12 @@
 # Spec 0001 — Cadastro local e busca de processos
 
-Status: aceita para implementação inicial
+Status: concluída para validação inicial; cadastro local substituído pela
+[Spec 0013](./0013-protected-monitored-identifiers.md)
 Data: 2026-08-29
+
+> Esta spec permanece como registro do experimento original. Requisitos de
+> `localStorage`, API sem autenticação e ausência de persistência de perfis não
+> representam o estado atual.
 
 ## Objetivo
 
