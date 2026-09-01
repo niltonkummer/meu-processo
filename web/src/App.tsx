@@ -661,24 +661,6 @@ export function App({
 
         {error && <p className="error-banner" role="alert">{error}</p>}
 
-        {authSession ? (
-          <>
-            <ActivityCenter
-              session={authSession}
-              fetcher={fetcher}
-              viewMode={viewMode}
-              profileCount={profiles.filter((profile) => profile.status === "active").length}
-              profilesLoading={profilesLoading}
-            />
-            <BillingPanel fetcher={fetcher} session={authSession} />
-            <AccountDataControls
-              fetcher={fetcher}
-              session={authSession}
-              saveFile={saveFile}
-            />
-          </>
-        ) : null}
-
         {searchHistory.length > 0 ? (
           <section className="search-history" aria-labelledby="search-history-title">
             <div className="search-history-heading">
@@ -1055,6 +1037,24 @@ export function App({
             )}
           </section>
         )}
+
+        {authSession ? (
+          <>
+            <ActivityCenter
+              session={authSession}
+              fetcher={fetcher}
+              viewMode={viewMode}
+              profileCount={profiles.filter((profile) => profile.status === "active").length}
+              profilesLoading={profilesLoading}
+            />
+            <BillingPanel fetcher={fetcher} session={authSession} />
+            <AccountDataControls
+              fetcher={fetcher}
+              session={authSession}
+              saveFile={saveFile}
+            />
+          </>
+        ) : null}
       </main>
 
       <footer>

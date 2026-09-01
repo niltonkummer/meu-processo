@@ -226,6 +226,39 @@ describe("App", () => {
     expect(storage.length).toBe(0);
   });
 
+  it("lists free name-search results before presenting the commercial panel", async () => {
+    const user = userEvent.setup();
+    render(
+      <App
+        fetcher={createAppFetcher()}
+        storage={storage}
+        loadAuthClient={vi.fn().mockResolvedValue(authClient())}
+      />,
+    );
+
+    await signIn(user);
+    await user.type(screen.getByLabelText("Nome completo"), "Pessoa Exemplo");
+    await user.click(screen.getByRole("button", { name: "Cadastrar e buscar" }));
+
+    const resultSection = (
+      await screen.findByRole("heading", { name: "Pessoa Exemplo", level: 2 })
+    ).closest("section");
+    const commercialSection = screen
+      .getByRole("heading", {
+        name: "Comece no essencial. Evolua quando fizer sentido.",
+        level: 2,
+      })
+      .closest("section");
+
+    expect(resultSection).not.toBeNull();
+    expect(commercialSection).not.toBeNull();
+    expect(
+      resultSection!.compareDocumentPosition(commercialSection!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(screen.getByRole("button", { name: "Abrir processo" })).toBeVisible();
+  });
+
   it("keeps one-off official search available while profile persistence is disabled", async () => {
     const user = userEvent.setup();
     const unavailable = () => new Response(

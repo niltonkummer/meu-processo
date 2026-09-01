@@ -46,6 +46,9 @@ de webhook sem leitura de alvos, processos ou documentos.
 - eventos fora de ordem são reconciliados com a assinatura canônica;
 - validation aceita somente test mode;
 - consulta, histórico próprio, exportação e exclusão não dependem de pagamento.
+- após uma consulta, histórico e processos aparecem antes de qualquer oferta
+  comercial; o painel de plano não pode ocultar, substituir ou aparentar
+  condicionar o resultado gratuito.
 
 ## Radar Processual
 
@@ -68,3 +71,5 @@ público pesquisável.
 10. memory/PostgreSQL, pgTAP, HTTP e Stripe fixtures passam com cobertura 100%;
 11. nenhuma cobrança real ocorre em teste;
 12. OpenAPI, audit, scans, Terraform e Infracost permanecem bloqueantes.
+13. consulta por nome lista os resultados antes do painel comercial e continua
+    utilizável quando billing estiver gratuito, indisponível ou sem entitlement.
