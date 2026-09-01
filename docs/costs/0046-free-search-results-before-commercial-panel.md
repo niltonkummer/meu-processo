@@ -2,7 +2,7 @@
 
 <!-- infra-cost-assessment:v1 -->
 
-**Status:** aprovado para implementação
+**Status:** aprovado para implementação e rollout de validação
 **Solicitado por:** proprietário do produto
 **Responsável:** engenharia do Meu Processo
 **Data da avaliação:** 1 de setembro de 2026
@@ -76,10 +76,11 @@ O cenário atual, esperado e o pior cenário plausível têm o mesmo consumo: a
 
 ## 7. Aprovação
 
-**Aprovado para implementação.** A autorização permanente do proprietário
-permite avançar sem nova pergunta quando o custo permanece abaixo de US$ 10/mês.
-Esta aprovação libera somente a correção local; não autoriza commit, push,
-merge ou deploy.
+**Aprovado para implementação e rollout de validação.** A autorização permanente
+do proprietário permite avançar sem nova pergunta quando o custo permanece
+abaixo de US$ 10/mês. Em 1 de setembro de 2026, o proprietário autorizou
+explicitamente commit, push e deploy desta correção em `validation`. Merge não
+faz parte desta autorização.
 
 ## 8. Verificação posterior
 
