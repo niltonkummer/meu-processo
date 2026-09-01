@@ -86,4 +86,4 @@ faz parte desta autorização.
 
 | Data | Custo estimado | Custo real | Variação | Explicação | Ação |
 |---|---:|---:|---:|---|---|
-| 1 de setembro de 2026 | US$ 0 de delta | pendente | — | verificar apenas se houver deploy | nenhuma neste momento |
+| 1 de setembro de 2026 | US$ 0 de delta | US$ 0 de delta estrutural | US$ 0 | plano aplicado com 0 recursos adicionados, 2 imagens atualizadas e 0 recursos destruídos | acompanhar faturamento dentro do limite operacional existente |

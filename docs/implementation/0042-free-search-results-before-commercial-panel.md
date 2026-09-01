@@ -1,6 +1,6 @@
 # Implementação 0042 — resultados gratuitos antes do painel comercial
 
-**Status:** implementado e validado localmente; não publicado
+**Status:** implementado, validado e publicado em `validation`
 **Data:** 1 de setembro de 2026
 **Spec:** [0033](../specs/0033-commercial-mvp-billing-and-discovery.md)
 **Custo:** [0046](../costs/0046-free-search-results-before-commercial-panel.md)
@@ -29,7 +29,14 @@ contrato HTTP, autorização, dado ou recurso de nuvem foi alterado.
 
 ## Rollout e rollback
 
-Não houve commit, push ou deploy. Se posteriormente autorizado, publicar pela
-pipeline OIDC da PR existente somente com todos os gates verdes. O rollback é
-reapontar o Cloud Run para a revisão imutável anterior; não existe migração de
-dados nem alteração de infraestrutura.
+O comportamento foi publicado pela pipeline OIDC no Cloud Run a partir do
+commit `fc63b50ba014eed1217bcde4616d25ac1a0137d2`. O workflow
+`33517113771` repetiu os release gates, publicou imagens imutáveis com SBOM e
+proveniência, aplicou o plano Terraform e verificou a revisão e a fundação
+gerenciada. O smoke test público confirmou `GET /health` com `200` e
+`{"ok":true}`, além da entrega do frontend em
+`https://meu-processo-mvp-rsirxb5ptq-rj.a.run.app`.
+
+O rollback é reapontar o Cloud Run para a imagem imutável anterior
+`cd968c4ea7fcfe383dc7eb6c219de8f8ad8a4437`; não existe migração de dados nem
+alteração estrutural de infraestrutura.
