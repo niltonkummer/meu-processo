@@ -29,7 +29,7 @@
     "firebase": "12.8.0",
     "firebase-admin": "14.3.0",
     "google-auth-library": "11.0.2",
-    "playwright-core": "1.62.0",
+    "playwright-core": "1.62.1",
     "ws": "8.21.3"
   },
   "devDependencies": {
