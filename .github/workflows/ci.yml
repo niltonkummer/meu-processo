@@ -77,7 +77,7 @@ jobs:
 
       - name: Block vulnerable dependency changes
         if: steps.dependency-baseline.outputs.available == 'true'
-        uses: actions/dependency-review-action@05fe4576374b728f0c523d6a13d64c25081e0803 # v4.8.3
+        uses: actions/dependency-review-action@bbc44d14a204704ccc493733616cd1e93a0321ec # v5.0.1
         with:
           fail-on-severity: high
 
